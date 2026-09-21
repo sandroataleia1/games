@@ -1,0 +1,9 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    include: ["packages/contracts/test.js", "apps/realtime/test/**/*.test.js"],
+    testTimeout: 7000,
+    hookTimeout: 7000,
+  },
+});

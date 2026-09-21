@@ -1,0 +1,23 @@
+node_modules/
+.next/
+coverage/
+.env
+.env.*
+!.env.example
+npm-debug.log*
+.local/
+test-results/
+playwright-report/
+dist/
+*.log
+.pnpm-store/
+
+# Arquivos locais do Windows e de editores
+Thumbs.db
+Desktop.ini
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp

@@ -1,0 +1,1 @@
+export const databasePackageStatus = "ready for PostgreSQL integration";
