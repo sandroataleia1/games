@@ -88,7 +88,7 @@ try {
   await hostPage.getByRole("button", { name: /Certa|Errada/ }).first().click();
   await hostPage.getByText(/Você acertou|Resposta revelada/).waitFor({ timeout: 10000 });
   await hostPage.getByRole("button", { name: "Avançar" }).click();
-  await hostPage.getByText("Ranking final").waitFor();
+  await hostPage.getByText("Partida encerrada").waitFor();
   const soloRankingText = await hostPage.locator("ol").innerText();
   if (!soloRankingText.includes("Anfitriã Portal")) throw new Error("solo ranking missing the host");
 
@@ -146,7 +146,7 @@ try {
   await guestPage.getByRole("button", { name: /Certa|Errada/ }).first().click();
   await guestPage.getByText(/Você acertou|Quase lá/).waitFor({ timeout: 10000 });
   await hostPage.getByRole("button", { name: "Avançar" }).click();
-  await hostPage.getByText("Ranking final").waitFor();
+  await hostPage.getByText("Partida encerrada").waitFor();
   const multiRankingText = await hostPage.locator("ol").innerText();
   if (!multiRankingText.includes("Convidada Portal")) throw new Error("multiplayer ranking missing the guest");
   if (multiRankingText.includes("Anfitriã Portal")) throw new Error("organize-only host leaked into the ranking");

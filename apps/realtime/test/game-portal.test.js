@@ -181,6 +181,30 @@ test("host que escolhe somente organizar não vira jogador e não pode iniciar s
   expect(started.error.code).toBe("NO_PARTICIPANTS");
 });
 
+test("sair da sala depois que a partida termina não quebra (era ROOM_NOT_FOUND/erro genérico)", async () => {
+  const { database, port } = await instance();
+  const host = await account(database, "HostSai");
+  const guest = await account(database, "ConvidadaSai");
+  const quiz = await onePublishedQuiz(database, host.user.id);
+  const hostSocket = await connect(port, host.token);
+  const guestSocket = await connect(port, guest.token);
+  const created = await command(hostSocket, EVENTS.ROOM_CREATE, { quizId: quiz.id, visibility: "PUBLIC" });
+  roomIds.push(created.data.roomCode);
+  const joined = await command(guestSocket, EVENTS.ROOM_JOIN, { roomCode: created.data.roomCode });
+  expect(joined.ok).toBe(true);
+  const started = await command(hostSocket, EVENTS.GAME_START, { roomCode: created.data.roomCode });
+  expect(started.ok).toBe(true);
+  const question = started.data.match.question;
+  await command(guestSocket, EVENTS.GAME_ANSWER, { roomCode: created.data.roomCode, questionId: question.id, optionId: question.options[0].id });
+  const session = await database.sessions.getByCode(created.data.roomCode);
+  await database.sessions.questionResult(session.id);
+  const finished = await command(hostSocket, EVENTS.GAME_NEXT, { roomCode: created.data.roomCode });
+  expect(finished.data.finished).toBe(true);
+
+  const left = await command(guestSocket, EVENTS.ROOM_LEAVE, { roomCode: created.data.roomCode });
+  expect(left.ok).toBe(true);
+});
+
 afterAll(async () => {
   clients.forEach((client) => client.close());
   await Promise.all(resources.map(({ server }) => server.close()));

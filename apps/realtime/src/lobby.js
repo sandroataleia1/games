@@ -316,8 +316,10 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     await markPresence(roomCode, participantId, false);
     socket.data.player = null;
     if (activePlayers.get(participantId) === socket) activePlayers.delete(participantId);
-    const lobby = await publish(roomCode);
-    io.to(roomCode).emit(EVENTS.PARTICIPANT_LEFT, { id: participantId });
+    await socket.leave(roomCode);
+    const current = await database.sessions.getByCode(roomCode);
+    const lobby = current?.matchPhase === "LOBBY" ? await publish(roomCode) : null;
+    if (lobby) io.to(roomCode).emit(EVENTS.PARTICIPANT_LEFT, { id: participantId });
     return ackOk({ state: lobby });
   }
   function bindCommand(socket, event, handler) {

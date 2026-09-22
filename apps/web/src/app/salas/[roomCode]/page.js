@@ -118,12 +118,12 @@ export default function RoomLobby() {
         {phase === "FINISHED" && (
           <div className={styles.matchPanel}>
             <span className={styles.eyebrow}>Partida encerrada</span>
-            <h1 id="room-title">Ranking final</h1>
+            <h1 id="room-title">{ranking[0] ? `${ranking[0].displayName} venceu! 🏆` : "Ranking final"}</h1>
             <ol className={styles.ranking}>{ranking.map((player) => <li key={player.id}><span>{player.displayName}</span><strong>{player.score} pts</strong></li>)}</ol>
           </div>
         )}
         <p className={styles.note} role="alert" aria-live="polite">{error}</p>
-        {phase === "LOBBY" && <button type="button" className={styles.secondary} onClick={leave}>Sair da sala</button>}
+        {(phase === "LOBBY" || phase === "FINISHED") && <button type="button" className={styles.secondary} onClick={leave}>Sair da sala</button>}
       </section>
     </main>
   );
