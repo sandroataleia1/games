@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    fileParallelism: false,
     include: [
       "packages/contracts/test.js",
       "apps/realtime/test/**/*.test.js",

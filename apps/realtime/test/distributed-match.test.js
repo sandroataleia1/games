@@ -1,6 +1,7 @@
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
+import { createClient as createRedisClient } from "redis";
 import { createDatabase } from "@quizarena/database";
 import { createClient as createDatabaseClient } from "../../../packages/database/src/client.js";
 import { EVENTS } from "@quizarena/contracts";
@@ -71,10 +72,12 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const host = await client(instanceA.port);
   const player = await client(instanceB.port);
   const counts = { host: {}, player: {} };
+  const received = { host: {}, player: {} };
   function countEvents(label, socket) {
     for (const event of [EVENTS.GAME_QUESTION, EVENTS.GAME_QUESTION_RESULT, EVENTS.GAME_RANKING, EVENTS.GAME_FINISHED]) {
       counts[label][event] ??= 0;
-      socket.on(event, () => { counts[label][event] += 1; });
+      received[label][event] ??= [];
+      socket.on(event, (payload) => { counts[label][event] += 1; received[label][event].push(payload); });
     }
   }
   countEvents("host", host);
@@ -106,12 +109,36 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const resultB = await resultOnB;
   expect(resultA.ranking).toEqual(resultB.ranking);
   expect(resultA).not.toHaveProperty("answers");
-  const session = await instanceA.database.sessions.getByCode(roomCode);
-  const nextResults = await Promise.allSettled([instanceA.database.sessions.nextQuestion(session.id), instanceB.database.sessions.nextQuestion(session.id)]);
-  expect(nextResults.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-  expect(nextResults.filter((result) => result.status === "rejected")).toHaveLength(1);
+  const secondHost = await client(instanceB.port);
+  const hostResumed = await command(secondHost, EVENTS.HOST_RESUME, { roomCode, hostToken: created.data.hostToken });
+  expect(hostResumed.ok).toBe(true);
+  const questionEventsBeforeAdvance = {
+    host: counts.host[EVENTS.GAME_QUESTION],
+    player: counts.player[EVENTS.GAME_QUESTION],
+  };
+  const nextResults = await Promise.all([
+    command(host, EVENTS.GAME_NEXT, { roomCode }),
+    command(secondHost, EVENTS.GAME_NEXT, { roomCode }),
+  ]);
+  expect(nextResults.filter((result) => result.ok)).toHaveLength(1);
+  expect(nextResults.filter((result) => !result.ok && result.error.code === "INVALID_STATE")).toHaveLength(1);
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  expect(counts.host[EVENTS.GAME_QUESTION] - questionEventsBeforeAdvance.host).toBe(1);
+  expect(counts.player[EVENTS.GAME_QUESTION] - questionEventsBeforeAdvance.player).toBe(1);
   const current = await instanceA.database.sessions.getByCode(roomCode);
   expect(current.currentQuestionIndex).toBe(1);
+  const successfulNext = nextResults.find((result) => result.ok);
+  expect(successfulNext.data.match.question.id).toBe(current.quizSnapshot.questions[1].id);
+  expect(successfulNext.data.match.question.startedAt).toBe(current.questionStartedAt.toISOString());
+  expect(successfulNext.data.match.question.endsAt).toBe(current.questionEndsAt.toISOString());
+  const redis = createRedisClient({ url: redisUrl });
+  await redis.connect();
+  const projected = JSON.parse(await redis.get(`quizarena:lobby:room:${roomCode}:game`));
+  await redis.quit();
+  expect(projected.round).toBe(2);
+  expect(projected.question.id).toBe(current.quizSnapshot.questions[1].id);
+  expect(projected.question.startedAt).toBe(current.questionStartedAt.toISOString());
+  expect(projected.question.endsAt).toBe(current.questionEndsAt.toISOString());
   const resumedSocket = player;
   resumedSocket.close();
   const replacement = await client(instanceA.port);
@@ -120,6 +147,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   expect(resumed.ok).toBe(true);
   expect(resumed.data.match.round).toBe(2);
   expect(resumed.data.match.phase).toBe("QUESTION");
+  expect(received.host[EVENTS.GAME_QUESTION].map(({ round }) => round)).toEqual([1, 2]);
   const secondQuestion = resumed.data.match.question;
   const lateRoom = waitFor(replacement, EVENTS.GAME_QUESTION_RESULT);
   await shortenQuestion(roomCode, 150);
@@ -127,6 +155,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   await instanceB.lobby.recoverActiveMatches();
   await new Promise((resolve) => setTimeout(resolve, 300));
   await lateRoom;
+  expect(received.host[EVENTS.GAME_QUESTION].map(({ round }) => round)).toEqual([1, 2]);
   const lateAnswer = await command(replacement, EVENTS.GAME_ANSWER, { roomCode, questionId: secondQuestion.id, optionId: secondQuestion.options[0].id });
   expect(lateAnswer.ok).toBe(false);
   for (let round = 2; round <= 6; round += 1) {
@@ -139,8 +168,8 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   expect(finished.matchPhase).toBe("FINISHED");
   const afterFinish = await command(replacement, EVENTS.GAME_ANSWER, { roomCode, questionId: secondQuestion.id, optionId: secondQuestion.options[0].id });
   expect(afterFinish.ok).toBe(false);
-  expect(counts.host[EVENTS.GAME_QUESTION]).toBe(6);
-  expect(counts.player[EVENTS.GAME_QUESTION]).toBe(5);
+  expect(received.host[EVENTS.GAME_QUESTION].map(({ round }) => round)).toEqual([1, 2, 3, 4, 5, 6]);
+  expect(received.player[EVENTS.GAME_QUESTION].map(({ round }) => round)).toEqual([1, 2, 3, 4, 5, 6]);
   expect(counts.host[EVENTS.GAME_QUESTION_RESULT]).toBe(2);
   expect(counts.player[EVENTS.GAME_QUESTION_RESULT]).toBe(2);
   expect(counts.host[EVENTS.GAME_RANKING]).toBe(3);

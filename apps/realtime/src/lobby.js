@@ -123,11 +123,11 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     const question = publicQuestion(current.session);
     return { schemaVersion: 1, roomCode, phase: current.session.matchPhase, round: current.session.currentQuestionIndex == null ? 0 : current.session.currentQuestionIndex + 1, totalRounds: current.session.quizSnapshot.questions.length, question, answeredCount: current.answers.length, playerCount: current.session.participants.length, serverTime: new Date().toISOString() };
   }
-  async function publishMatch(roomCode) {
+  async function publishMatch(roomCode, { emitQuestion = true } = {}) {
     const current = await matchState(roomCode);
     await publisher.set(`${roomKey(roomCode)}:game`, JSON.stringify(current), { EX: ttlSeconds });
     io.to(roomCode).emit(EVENTS.GAME_STATE, current);
-    if (current.question) io.to(roomCode).emit(EVENTS.GAME_QUESTION, current.question);
+    if (emitQuestion && current.question) io.to(roomCode).emit(EVENTS.GAME_QUESTION, current.question);
     return current;
   }
   async function finishQuestion(roomCode) {
@@ -254,7 +254,14 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!parsed.success || socket.data.hostRoomCode !== parsed.data.roomCode || !socket.data.host) throw new DomainError("UNAUTHORIZED");
     const session = await database.sessions.getByCode(parsed.data.roomCode);
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const next = await database.sessions.nextQuestion(session.id);
+    const round = session.currentQuestionIndex + 1;
+    const locked = await withLock(publisher, gameLockKey(parsed.data.roomCode, round), 30000, async () => {
+      const current = await database.sessions.getByCode(parsed.data.roomCode);
+      if (!current || current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
+      return database.sessions.nextQuestion(current.id);
+    });
+    if (!locked.acquired) throw new DomainError("INVALID_STATE");
+    const next = locked.value;
     if (next.finished) {
       const ranking = next.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
       io.to(parsed.data.roomCode).emit(EVENTS.GAME_FINISHED, { ranking });
@@ -299,7 +306,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
       if (!player) return;
       if (activePlayers.get(player.participantId) !== socket) return;
       activePlayers.delete(player.participantId);
-      try { await database.sessions.disconnectParticipant(player.gameSessionId, player.participantId); await markPresence(player.roomCode, player.participantId, false); const current = await database.sessions.getByCode(player.roomCode); if (current?.matchPhase === "LOBBY") await publish(player.roomCode); else if (current) await publishMatch(player.roomCode); }
+      try { await database.sessions.disconnectParticipant(player.gameSessionId, player.participantId); await markPresence(player.roomCode, player.participantId, false); const current = await database.sessions.getByCode(player.roomCode); if (current?.matchPhase === "LOBBY") await publish(player.roomCode); else if (current) await publishMatch(player.roomCode, { emitQuestion: false }); }
       catch (error) { logger.error(`[lobby] disconnect: ${mapError(error)}`); }
     });
   }
