@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as createClient } from "socket.io-client";
+import { createClient as createRedisClient } from "redis";
 import { createDatabase } from "@quizarena/database";
 import { createClient as createDatabaseClient } from "../../../packages/database/src/client.js";
 import { EVENTS } from "@quizarena/contracts";
@@ -12,10 +13,9 @@ config({ path: new URL("../../../.env", import.meta.url), quiet: true });
 const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
 const databases = [];
-const runtimes = [];
 const servers = [];
 const clients = [];
-const createdRoomCodes = [];
+const ROOM = 2;
 let playerAccountId;
 
 async function instance(port) {
@@ -26,7 +26,6 @@ async function instance(port) {
   await lobby.connect();
   await new Promise((resolve) => server.httpServer.listen(port, resolve));
   databases.push(database);
-  runtimes.push(lobby);
   servers.push(server);
   return server;
 }
@@ -41,31 +40,32 @@ async function command(client, event, payload) {
   return new Promise((resolve) => client.timeout(5000).emit(event, payload, (_error, response) => resolve(response)));
 }
 
-test("host and player on separate instances share lobby state through Redis", async () => {
-  const quizDatabase = createDatabase({ databaseUrl });
-  const seedOwner = await quizDatabase.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
-  const quiz = (await quizDatabase.organizers.publishedOwned(seedOwner.user.id))[0];
-  await quizDatabase.close();
-  expect(quiz).toBeTruthy();
+test("room presence and theme selection are shared across instances through Redis", async () => {
   await instance(0);
   await instance(0);
   const auth = await databases[0].organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const quiz = (await databases[0].organizers.publishedOwned(auth.user.id))[0];
+  expect(quiz).toBeTruthy();
   const ana = await databases[0].organizers.register({ name: "Ana", email: `ana-${randomUUID()}@example.com`, password: "SenhaSegura123" });
   playerAccountId = ana.user.id;
+
   const host = await connect(servers[0].httpServer.address().port, auth.token);
   const player = await connect(servers[1].httpServer.address().port);
-  const unauthenticated = await command(player, EVENTS.ROOM_CREATE, { quizId: quiz.id });
+  const unauthenticated = await command(player, EVENTS.ROOM_ENTER, { roomNumber: ROOM });
   expect(unauthenticated.error.code).toBe("UNAUTHENTICATED");
-  const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
-  expect(created.ok).toBe(true);
-  createdRoomCodes.push(created.data.roomCode);
-  const state = new Promise((resolve) => host.once(EVENTS.ROOM_STATE, resolve));
-  await player.disconnect();
+
+  const enteredHost = await command(host, EVENTS.ROOM_ENTER, { roomNumber: ROOM });
+  expect(enteredHost.ok).toBe(true);
+  const themed = await command(host, EVENTS.THEME_SELECT, { roomNumber: ROOM, quizId: quiz.id });
+  expect(themed.ok).toBe(true);
+
+  const stateOnHost = new Promise((resolve) => host.once(EVENTS.ROOM_STATE, resolve));
   const authenticatedPlayer = await connect(servers[1].httpServer.address().port, ana.token);
-  const joined = await command(authenticatedPlayer, EVENTS.ROOM_JOIN, { roomCode: created.data.roomCode });
-  expect(joined.ok).toBe(true);
-  expect((await state).playerCount).toBe(1);
-  expect(joined.data.state.players[0].displayName).toBe("Ana");
+  const entered = await command(authenticatedPlayer, EVENTS.ROOM_ENTER, { roomNumber: ROOM });
+  expect(entered.ok).toBe(true);
+  expect(entered.data.room.quizId).toBe(quiz.id);
+  expect((await stateOnHost).playerCount).toBe(2);
+  expect(entered.data.room.players.map((p) => p.displayName)).toContain("Ana");
 });
 
 afterAll(async () => {
@@ -73,13 +73,17 @@ afterAll(async () => {
   await Promise.all(servers.map((server) => server.close()));
   await Promise.all(databases.map((database) => database.close()));
   const cleanup = createDatabaseClient(databaseUrl);
-  for (const roomCode of createdRoomCodes) {
-    const session = await cleanup.gameSession.findUnique({ where: { roomCode }, select: { id: true } });
-    if (session) {
-      await cleanup.participant.deleteMany({ where: { gameSessionId: session.id } });
-      await cleanup.gameSession.delete({ where: { id: session.id } });
-    }
-  }
+  const room = await cleanup.room.findUnique({ where: { number: ROOM } });
+  if (room) await cleanup.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
   if (playerAccountId) { await cleanup.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await cleanup.organizer.delete({ where: { id: playerAccountId } }); }
   await cleanup.$disconnect();
+
+  // Presence keys carry a multi-hour TTL, so a leftover from a previous run
+  // (a random account that no longer exists) would silently inflate the
+  // exact playerCount assertion above on the next run.
+  const redis = createRedisClient({ url: redisUrl });
+  await redis.connect();
+  const keys = await redis.keys(`quizarena:room:presence:${ROOM}:*`);
+  if (keys.length) await redis.del(keys);
+  await redis.disconnect();
 });

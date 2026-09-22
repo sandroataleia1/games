@@ -2,6 +2,7 @@ import { createClient } from "./client.js";
 import { createQuizService } from "./services/quizzes.js";
 import { createSessionService } from "./services/sessions.js";
 import { createOrganizerService } from "./services/organizers.js";
+import { createRoomService } from "./services/rooms.js";
 
 export { DomainError } from "./errors/domain-error.js";
 export { createDatabaseHealthProbe } from "./client.js";
@@ -11,6 +12,7 @@ export function createDatabase({ databaseUrl, maxPlayers = 20 } = {}) {
     quizzes: createQuizService(client),
     sessions: createSessionService(client, { maxPlayers }),
     organizers: createOrganizerService(client),
+    rooms: createRoomService(client),
     close: () => client.$disconnect(),
   };
 }

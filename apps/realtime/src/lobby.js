@@ -1,69 +1,32 @@
-import { randomBytes } from "node:crypto";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
 import { withLock } from "./distributed-lock.js";
 import { DomainError } from "@quizarena/database";
-import { EVENTS, lobbySchemas, publicLobbyStateSchema } from "@quizarena/contracts";
+import { EVENTS, lobbySchemas, publicRoomSchema, publicMatchStateSchema } from "@quizarena/contracts";
 
-const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-const DEFAULT_MAX_PLAYERS = 20;
 const DEFAULT_TTL_SECONDS = 60 * 60 * 6;
 const GAME_LOCK_TTL_MS = 120000;
-const RATE_LIMITS = Object.freeze({ create: [5, 60], join: [12, 60], resume: [10, 60], command: [60, 60] });
+const RATE_LIMITS = Object.freeze({ enter: [20, 60], resume: [10, 60], command: [60, 60] });
+const INDEX_CHANNEL = "rooms:index";
 
-function roomKey(roomCode) { return `quizarena:lobby:room:${roomCode}`; }
-function presenceKey(roomCode, participantId) { return `quizarena:lobby:presence:${roomCode}:${participantId}`; }
-function gameLockKey(roomCode, round) { return `quizarena:lobby:game:lock:${roomCode}:${round}`; }
+function channel(roomNumber) { return `room:${roomNumber}`; }
+function presenceKeyPrefix(roomNumber) { return `quizarena:room:presence:${roomNumber}:`; }
+function presenceKey(roomNumber, accountId) { return `${presenceKeyPrefix(roomNumber)}${accountId}`; }
+function gameLockKey(sessionId, round) { return `quizarena:lobby:game:lock:${sessionId}:${round}`; }
 function rateKey(prefix, kind, identity) { return `${prefix}:${kind}:${identity}`; }
-function generateRoomCode() {
-  const bytes = randomBytes(6);
-  return [...bytes].map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
-}
+function memberKey(roomNumber, accountId) { return `${roomNumber}:${accountId}`; }
 function errorMessage(code) {
-  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala não está aguardando jogadores.", ROOM_FULL: "A sala está cheia.", ROOM_CODE_CONFLICT: "Não foi possível gerar um código de sala.", NAME_CONFLICT: "Este nome já está sendo usado.", INVALID_HOST_TOKEN: "Token do organizador inválido.", INVALID_RECONNECT_TOKEN: "Token de reconexão inválido.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", UNAUTHENTICATED: "É necessário entrar com sua conta.", PARTICIPANT_ALREADY_JOINED: "Você já está participando desta sala.", UNAUTHORIZED: "Sua conexão foi reiniciada. Aguarde reconectar e tente de novo.", INVALID_STATE: "A partida mudou de estado. Atualize a página.", NO_PARTICIPANTS: "É preciso pelo menos um participante para iniciar.", NO_QUESTIONS: "Este quiz não tem perguntas.", QUESTION_EXPIRED: "O tempo desta pergunta já acabou.", PARTICIPANT_NOT_ACTIVE: "Você não está ativo nesta sala no momento.", INVALID_ANSWER: "Não foi possível registrar essa resposta.", TRANSACTION_CONFLICT: "Muitas ações ao mesmo tempo. Tente de novo.", PARTICIPANT_INVALID: "Não foi possível identificar você nesta sala.", REFERENCE_CONFLICT: "Este item não existe mais.", COORDINATION_UNAVAILABLE: "O serviço está temporariamente indisponível.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
+  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala já está em uma partida.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", UNAUTHENTICATED: "É necessário entrar com sua conta.", PARTICIPANT_ALREADY_JOINED: "Você já está participando desta sala.", UNAUTHORIZED: "Sua conexão foi reiniciada. Aguarde reconectar e tente de novo.", INVALID_STATE: "A partida mudou de estado. Atualize a página.", NO_PARTICIPANTS: "É preciso pelo menos um participante para iniciar.", NO_QUESTIONS: "Este quiz não tem perguntas.", QUESTION_EXPIRED: "O tempo desta pergunta já acabou.", PARTICIPANT_NOT_ACTIVE: "Você não está ativo nesta sala no momento.", INVALID_ANSWER: "Não foi possível registrar essa resposta.", TRANSACTION_CONFLICT: "Muitas ações ao mesmo tempo. Tente de novo.", PARTICIPANT_INVALID: "Não foi possível identificar você nesta sala.", REFERENCE_CONFLICT: "Este item não existe mais.", COORDINATION_UNAVAILABLE: "O serviço está temporariamente indisponível.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
 }
 function ackOk(data) { return { ok: true, data }; }
 function ackError(code) { return { ok: false, error: { code, message: errorMessage(code) } }; }
-function replaceActive(registry, identity, socket) {
-  const previous = registry.get(identity);
-  if (previous && previous !== socket) {
-    previous.data.player = null;
-    previous.data.hostRoomCode = null;
-    previous.disconnect(true);
-  }
-  registry.set(identity, socket);
-}
 function mapError(error) {
   if (error instanceof DomainError) {
-    if (error.code === "SESSION_NOT_FOUND" || error.code === "ROOM_CODE_INVALID") return "ROOM_NOT_FOUND";
-    if (error.code === "SESSION_NOT_WAITING") return "ROOM_NOT_WAITING";
-    if (error.code === "PARTICIPANT_NAME_CONFLICT") return "NAME_CONFLICT";
-    if (error.code === "PARTICIPANT_NOT_FOUND") return "INVALID_RECONNECT_TOKEN";
-    if (error.code === "TOKEN_INVALID") return "INVALID_RECONNECT_TOKEN";
+    if (error.code === "SESSION_NOT_FOUND") return "ROOM_NOT_FOUND";
     if (error.code === "QUIZ_INVALID") return "QUIZ_NOT_PUBLISHED";
     return error.code;
   }
   return "INTERNAL_ERROR";
-}
-function publicState(session, presence, maxPlayers) {
-  const players = (session.participants ?? []).map((player) => ({
-    id: player.id,
-    displayName: player.displayName,
-    connectionStatus: presence.has(player.id) ? "CONNECTED" : "DISCONNECTED",
-    joinedAt: new Date(player.joinedAt).toISOString(),
-  }));
-  const state = {
-    schemaVersion: 1,
-    roomCode: session.roomCode,
-    status: session.status,
-    visibility: session.visibility,
-    quiz: { id: session.quizId, title: session.quizSnapshot.title, questionCount: session.quizSnapshot.questions.length },
-    players,
-    playerCount: players.length,
-    maxPlayers,
-    serverTime: new Date().toISOString(),
-  };
-  return publicLobbyStateSchema.parse(state);
 }
 function publicQuestion(session) {
   if (session.matchPhase !== "QUESTION") return null;
@@ -71,14 +34,12 @@ function publicQuestion(session) {
   return { id: question.id, prompt: question.prompt, options: question.options.map(({ id, position, text }) => ({ id, position, text })), round: session.currentQuestionIndex + 1, totalRounds: session.quizSnapshot.questions.length, durationSeconds: question.durationSeconds, startedAt: session.questionStartedAt.toISOString(), endsAt: session.questionEndsAt.toISOString(), phase: "QUESTION" };
 }
 
-export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAULT_MAX_PLAYERS, ttlSeconds = DEFAULT_TTL_SECONDS, rateLimitPrefix = "quizarena:lobby:rate", logger = console }) {
-  const safeMaxPlayers = Math.min(Math.max(Number(maxPlayers) || DEFAULT_MAX_PLAYERS, 1), 100);
+export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAULT_TTL_SECONDS, rateLimitPrefix = "quizarena:lobby:rate", logger = console }) {
   const publisher = createClient({ url: redisUrl, disableOfflineQueue: true });
   const subscriber = publisher.duplicate();
   let ready = false;
   let closingState = false;
-  const activePlayers = new Map();
-  const activeHosts = new Map();
+  const activeMembers = new Map();
   const timers = new Map();
   let closing;
   async function connect() {
@@ -89,7 +50,11 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
   }
   async function recoverActiveMatches() {
     const matches = await database.sessions.activeMatches();
-    matches.forEach((session) => scheduleQuestion(session.roomCode, session.questionEndsAt));
+    for (const session of matches) {
+      if (!session.roomId) continue;
+      const room = await database.rooms.getById(session.roomId).catch(() => null);
+      if (room) scheduleQuestion(room.number, session.id, session.questionEndsAt);
+    }
   }
   async function ensureReady() {
     if (!ready || !publisher.isReady) throw new DomainError("DEPENDENCY_UNAVAILABLE");
@@ -102,225 +67,215 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (count === 1) await publisher.expire(key, ttl);
     if (count > limit) throw new DomainError("RATE_LIMITED");
   }
-  async function presence(roomCode, session) {
-    const values = await Promise.all((session.participants ?? []).map(async (player) => [player.id, await publisher.exists(presenceKey(roomCode, player.id))]));
-    return new Map(values.filter(([, exists]) => exists).map(([id]) => [id, true]));
+  async function setPresence(roomNumber, accountId, displayName) {
+    await publisher.set(presenceKey(roomNumber, accountId), JSON.stringify({ displayName }), { EX: ttlSeconds });
   }
-  async function state(roomCode) {
-    const session = await database.sessions.getByCode(roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    return publicState(session, await presence(roomCode, session), safeMaxPlayers);
+  async function clearPresence(roomNumber, accountId) {
+    await publisher.del(presenceKey(roomNumber, accountId));
   }
-  async function broadcastRoomCatalog(quizId) {
-    const rooms = await database.sessions.publicRoomsForQuiz(quizId);
-    io.to(`quiz:${quizId}`).emit(EVENTS.ROOM_CATALOG, { quizId, rooms });
+  async function listPresence(roomNumber) {
+    const prefix = presenceKeyPrefix(roomNumber);
+    const results = [];
+    for await (const batch of publisher.scanIterator({ MATCH: `${prefix}*`, COUNT: 200 })) {
+      for (const key of Array.isArray(batch) ? batch : [batch]) {
+        const raw = await publisher.get(key);
+        if (!raw) continue;
+        try { results.push({ accountId: key.slice(prefix.length), ...JSON.parse(raw) }); } catch { /* ignore malformed entry */ }
+      }
+    }
+    return results;
   }
-  async function publish(roomCode) {
-    const session = await database.sessions.getByCode(roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const current = publicState(session, await presence(roomCode, session), safeMaxPlayers);
-    await publisher.set(roomKey(roomCode), JSON.stringify(current), { EX: ttlSeconds });
-    io.to(roomCode).emit(EVENTS.ROOM_STATE, current);
-    if (session.visibility === "PUBLIC") await broadcastRoomCatalog(session.quizId);
+  async function publicRoomState(roomNumber) {
+    const room = await database.rooms.get(roomNumber);
+    const players = await listPresence(roomNumber);
+    return publicRoomSchema.parse({ roomNumber: room.number, status: room.status, quizId: room.quizId, quizTitle: room.quizTitle, playerCount: players.length, players, serverTime: new Date().toISOString() });
+  }
+  async function broadcastRoom(roomNumber) {
+    const current = await publicRoomState(roomNumber);
+    io.to(channel(roomNumber)).emit(EVENTS.ROOM_STATE, current);
     return current;
   }
-  async function matchState(roomCode) {
+  async function roomIndex() {
+    const rooms = await database.rooms.list();
+    return Promise.all(rooms.map(async (room) => ({ ...room, playerCount: (await listPresence(room.number)).length })));
+  }
+  async function broadcastIndex() {
+    io.to(INDEX_CHANNEL).emit(EVENTS.ROOM_INDEX, { rooms: await roomIndex() });
+  }
+  async function matchState(roomNumber, sessionId) {
     await ensureReady();
-    const room = await database.sessions.getByCode(roomCode);
-    if (!room) throw new DomainError("SESSION_NOT_FOUND");
-    const current = await database.sessions.currentQuestion(room.id);
+    const current = await database.sessions.currentQuestion(sessionId);
     const question = publicQuestion(current.session);
-    return { schemaVersion: 1, roomCode, phase: current.session.matchPhase, round: current.session.currentQuestionIndex == null ? 0 : current.session.currentQuestionIndex + 1, totalRounds: current.session.quizSnapshot.questions.length, question, answeredCount: current.answers.length, playerCount: current.session.participants.length, serverTime: new Date().toISOString() };
+    return publicMatchStateSchema.parse({ schemaVersion: 1, roomNumber, phase: current.session.matchPhase, round: current.session.currentQuestionIndex == null ? 0 : current.session.currentQuestionIndex + 1, totalRounds: current.session.quizSnapshot.questions.length, question, answeredCount: current.answers.length, playerCount: current.session.participants.length, serverTime: new Date().toISOString() });
   }
-  async function publishMatch(roomCode, { emitQuestion = true } = {}) {
-    const current = await matchState(roomCode);
-    await publisher.set(`${roomKey(roomCode)}:game`, JSON.stringify(current), { EX: ttlSeconds });
-    io.to(roomCode).emit(EVENTS.GAME_STATE, current);
-    if (emitQuestion && current.question) io.to(roomCode).emit(EVENTS.GAME_QUESTION, current.question);
+  async function publishMatch(roomNumber, sessionId, { emitQuestion = true } = {}) {
+    const current = await matchState(roomNumber, sessionId);
+    io.to(channel(roomNumber)).emit(EVENTS.GAME_STATE, current);
+    if (emitQuestion && current.question) io.to(channel(roomNumber)).emit(EVENTS.GAME_QUESTION, current.question);
     return current;
   }
-  async function finishQuestion(roomCode) {
-    const session = await database.sessions.getByCode(roomCode);
+  async function finishQuestion(roomNumber, sessionId) {
+    const session = await database.sessions.getById(sessionId).catch(() => null);
     if (!session || session.matchPhase !== "QUESTION") return;
     const round = session.currentQuestionIndex + 1;
-    if (session.questionEndsAt && Date.now() < session.questionEndsAt.getTime()) { scheduleQuestion(roomCode, session.questionEndsAt); return; }
-      const locked = await withLock(publisher, gameLockKey(roomCode, round), GAME_LOCK_TTL_MS, async () => {
-        const current = await database.sessions.getByCode(roomCode);
-        if (!current || current.matchPhase !== "QUESTION") return;
-        return database.sessions.questionResult(current.id);
-      });
-      if (!locked.acquired || !locked.value) return;
-      const result = locked.value;
-      const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
-      const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
-      const sockets = await io.in(roomCode).fetchSockets();
-      for (const socket of sockets) {
-        const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
-        socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
-      }
-      io.to(roomCode).emit(EVENTS.GAME_RANKING, ranking);
-      await publishMatch(roomCode);
+    if (session.questionEndsAt && Date.now() < new Date(session.questionEndsAt).getTime()) { scheduleQuestion(roomNumber, sessionId, session.questionEndsAt); return; }
+    const locked = await withLock(publisher, gameLockKey(sessionId, round), GAME_LOCK_TTL_MS, async () => {
+      const current = await database.sessions.getById(sessionId).catch(() => null);
+      if (!current || current.matchPhase !== "QUESTION") return;
+      return database.sessions.questionResult(sessionId);
+    });
+    if (!locked.acquired || !locked.value) return;
+    const result = locked.value;
+    const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
+    const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
+    const sockets = await io.in(channel(roomNumber)).fetchSockets();
+    for (const socket of sockets) {
+      const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
+      socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
+    }
+    io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
+    await publishMatch(roomNumber, sessionId);
   }
-  function scheduleQuestion(roomCode, endsAt) {
-    const previous = timers.get(roomCode);
+  function scheduleQuestion(roomNumber, sessionId, endsAt) {
+    const previous = timers.get(sessionId);
     if (previous) clearTimeout(previous);
-    timers.set(roomCode, setTimeout(() => finishQuestion(roomCode).catch((error) => logger.error(`[lobby] timer: ${mapError(error)}`)), Math.max(10, endsAt.getTime() - Date.now())));
+    const endsAtMs = endsAt instanceof Date ? endsAt.getTime() : new Date(endsAt).getTime();
+    timers.set(sessionId, setTimeout(() => finishQuestion(roomNumber, sessionId).catch((error) => logger.error(`[lobby] timer: ${mapError(error)}`)), Math.max(10, endsAtMs - Date.now())));
   }
-  async function markPresence(roomCode, participantId, connected) {
-    const key = presenceKey(roomCode, participantId);
-    if (connected) await publisher.set(key, "1", { EX: ttlSeconds });
-    else await publisher.del(key);
+  function claimMembership(roomNumber, accountId, socket) {
+    const key = memberKey(roomNumber, accountId);
+    const previous = activeMembers.get(key);
+    if (previous && previous !== socket) { previous.data.roomNumber = null; previous.data.player = null; previous.disconnect(true); }
+    activeMembers.set(key, socket);
   }
-  async function attachPlayer(socket, gameSessionId, roomCode, account) {
-    const { participant } = await database.sessions.enterAsAccount({ gameSessionId, userId: account.id, displayName: account.name });
-    socket.data.player = { roomCode, participantId: participant.id, gameSessionId };
-    replaceActive(activePlayers, participant.id, socket);
-    await markPresence(roomCode, participant.id, true);
-    return participant;
+  async function attachIfParticipant(socket, roomNumber, sessionId) {
+    if (socket.data.player?.roomNumber === roomNumber) return socket.data.player;
+    if (!socket.data.organizer) return null;
+    const existing = await database.sessions.resumePresenceForAccount(sessionId, socket.data.organizer.id).catch(() => null);
+    if (!existing) return null;
+    socket.data.player = { roomNumber, participantId: existing.id, gameSessionId: sessionId };
+    return socket.data.player;
   }
-  async function createRoom(socket, payload) {
-    await rateLimit("create", socket.handshake.address);
-    const parsed = lobbySchemas.roomCreate.safeParse(payload);
+  async function enterRoom(socket, payload) {
+    await rateLimit("enter", socket.handshake.address);
+    const parsed = lobbySchemas.roomEnter.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    const hostToken = randomBytes(32).toString("hex");
-    let session;
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      try { session = await database.organizers.createRoomFromPublished(parsed.data.quizId, generateRoomCode(), hostToken, { hostUserId: socket.data.organizer.id, visibility: parsed.data.visibility }); break; }
-      catch (error) { if (mapError(error) !== "ROOM_CODE_CONFLICT") throw error; if (attempt === 4) throw new DomainError("ROOM_CODE_CONFLICT"); }
+    const account = socket.data.organizer;
+    const room = await database.rooms.get(parsed.data.roomNumber);
+    await socket.join(channel(room.number));
+    socket.data.roomNumber = room.number;
+    claimMembership(room.number, account.id, socket);
+    await setPresence(room.number, account.id, account.name);
+    let match = null;
+    if (room.status === "PLAYING" && room.currentSessionId) {
+      await attachIfParticipant(socket, room.number, room.currentSessionId);
+      match = await matchState(room.number, room.currentSessionId);
     }
-    await socket.join(session.roomCode);
-    socket.data.hostRoomCode = session.roomCode;
-    socket.data.host = true;
-    replaceActive(activeHosts, session.roomCode, socket);
-    if (parsed.data.hostPlays) await attachPlayer(socket, session.id, session.roomCode, socket.data.organizer);
-    await publish(session.roomCode);
-    return ackOk({ roomCode: session.roomCode, hostToken, playing: parsed.data.hostPlays, state: await state(session.roomCode) });
+    const state = await broadcastRoom(room.number);
+    io.to(channel(room.number)).emit(EVENTS.PARTICIPANT_JOINED, { accountId: account.id, displayName: account.name });
+    await broadcastIndex();
+    return ackOk({ room: state, match, playing: Boolean(socket.data.player) });
   }
-  async function listQuizzes(_socket, payload) {
+  async function leaveRoomHandler(socket, payload) {
+    const parsed = lobbySchemas.roomLeave.safeParse(payload);
+    if (!parsed.success || socket.data.roomNumber !== parsed.data.roomNumber) throw new DomainError("INVALID_PAYLOAD");
+    const account = socket.data.organizer;
+    const roomNumber = socket.data.roomNumber;
+    if (account && activeMembers.get(memberKey(roomNumber, account.id)) === socket) activeMembers.delete(memberKey(roomNumber, account.id));
+    if (account) await clearPresence(roomNumber, account.id);
+    if (socket.data.player) { try { await database.sessions.disconnectParticipant(socket.data.player.gameSessionId, socket.data.player.participantId); } catch { /* best effort */ } }
+    socket.data.roomNumber = null;
+    socket.data.player = null;
+    await socket.leave(channel(roomNumber));
+    const state = await broadcastRoom(roomNumber);
+    if (account) io.to(channel(roomNumber)).emit(EVENTS.PARTICIPANT_LEFT, { accountId: account.id });
+    await broadcastIndex();
+    return ackOk({ room: state });
+  }
+  async function listQuizzes(socket, payload) {
     const parsed = lobbySchemas.quizList.safeParse(payload ?? {});
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     await ensureReady();
-    if (!_socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    const data = await database.organizers.publishedAll();
-    return ackOk({ quizzes: data });
-  }
-  async function joinRoom(socket, payload) {
-    await rateLimit("join", socket.handshake.address);
-    const parsed = lobbySchemas.roomJoin.safeParse(payload);
-    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    const session = await database.sessions.getByCode(parsed.data.roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const account = socket.data.organizer;
-    const player = await attachPlayer(socket, session.id, session.roomCode, parsed.data.displayName ? { ...account, name: parsed.data.displayName } : account);
-    await socket.join(session.roomCode);
-    const lobby = session.matchPhase === "LOBBY" ? await publish(session.roomCode) : null;
-    if (lobby) io.to(session.roomCode).emit(EVENTS.PARTICIPANT_JOINED, lobby.players.find(({ id }) => id === player.id));
-    return ackOk({ participantId: player.id, state: lobby, match: await matchState(session.roomCode) });
-  }
-  async function resumePlayer(socket, payload) {
-    await rateLimit("resume", socket.handshake.address);
-    const parsed = lobbySchemas.roomResume.safeParse(payload);
-    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
-    const session = await database.sessions.getByCode(parsed.data.roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const player = await database.sessions.resumeParticipant({ gameSessionId: session.id, participantId: parsed.data.participantId, reconnectToken: parsed.data.reconnectToken });
-    await socket.join(session.roomCode);
-    socket.data.player = { roomCode: session.roomCode, participantId: player.id, gameSessionId: session.id };
-    replaceActive(activePlayers, player.id, socket);
-    await markPresence(session.roomCode, player.id, true);
-    const lobby = session.matchPhase === "LOBBY" ? await publish(session.roomCode) : null;
-    if (lobby) io.to(session.roomCode).emit(EVENTS.PARTICIPANT_UPDATED, lobby.players.find(({ id }) => id === player.id));
-    return ackOk({ participantId: player.id, state: lobby, match: await matchState(session.roomCode) });
-  }
-  async function resumeHost(socket, payload) {
-    await rateLimit("resume", socket.handshake.address);
-    const parsed = lobbySchemas.hostResume.safeParse(payload);
-    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
-    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    const session = await database.sessions.getByCode(parsed.data.roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    await database.sessions.resumeHost({ gameSessionId: session.id, hostToken: parsed.data.hostToken, accountId: socket.data.organizer.id });
-    await socket.join(session.roomCode);
-    socket.data.hostRoomCode = session.roomCode;
-    socket.data.host = true;
-    replaceActive(activeHosts, session.roomCode, socket);
-    const existingPlayer = await database.sessions.resumePresenceForAccount(session.id, socket.data.organizer.id);
-    if (existingPlayer) { socket.data.player = { roomCode: session.roomCode, participantId: existingPlayer.id, gameSessionId: session.id }; replaceActive(activePlayers, existingPlayer.id, socket); await markPresence(session.roomCode, existingPlayer.id, true); }
-    const lobby = session.matchPhase === "LOBBY" ? await publish(session.roomCode) : null;
-    return ackOk({ state: lobby, match: await matchState(session.roomCode), playing: Boolean(existingPlayer) });
+    return ackOk({ quizzes: await database.organizers.publishedAll() });
   }
   async function listRooms(socket, payload) {
-    const parsed = lobbySchemas.roomList.safeParse(payload);
+    const parsed = lobbySchemas.roomList.safeParse(payload ?? {});
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    return ackOk({ rooms: await database.sessions.publicRoomsForQuiz(parsed.data.quizId) });
+    await socket.join(INDEX_CHANNEL);
+    return ackOk({ rooms: await roomIndex() });
   }
-  async function watchQuiz(socket, payload) {
-    const parsed = lobbySchemas.roomWatch.safeParse(payload);
+  async function selectTheme(socket, payload) {
+    const parsed = lobbySchemas.themeSelect.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    await socket.join(`quiz:${parsed.data.quizId}`);
-    return ackOk({ rooms: await database.sessions.publicRoomsForQuiz(parsed.data.quizId) });
+    if (socket.data.roomNumber !== parsed.data.roomNumber) throw new DomainError("UNAUTHORIZED");
+    await database.rooms.selectTheme(parsed.data.roomNumber, parsed.data.quizId);
+    const state = await broadcastRoom(parsed.data.roomNumber);
+    await broadcastIndex();
+    return ackOk({ room: state });
   }
-  async function unwatchQuiz(socket, payload) {
-    const parsed = lobbySchemas.roomUnwatch.safeParse(payload);
+  async function matchStart(socket, payload) {
+    const parsed = lobbySchemas.matchStart.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
-    await socket.leave(`quiz:${parsed.data.quizId}`);
-    return ackOk({});
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
+    if (socket.data.roomNumber !== parsed.data.roomNumber) throw new DomainError("UNAUTHORIZED");
+    const roomNumber = parsed.data.roomNumber;
+    const presentAccounts = await listPresence(roomNumber);
+    const created = await database.rooms.startMatch(roomNumber, presentAccounts.map((entry) => ({ userId: entry.accountId, displayName: entry.displayName })));
+    // Sockets learn they're a participant lazily (see attachIfParticipant):
+    // with a Redis adapter, fetchSockets() across instances only returns
+    // mutable data for sockets local to this process, so eagerly mutating
+    // remote sockets here would silently no-op on every other instance.
+    await attachIfParticipant(socket, roomNumber, created.id);
+    const started = await database.sessions.startMatch(created.id);
+    scheduleQuestion(roomNumber, created.id, started.questionEndsAt);
+    await broadcastIndex();
+    return ackOk({ match: await publishMatch(roomNumber, created.id) });
   }
-  async function startGame(socket, payload) {
-    const parsed = lobbySchemas.gameStart.safeParse(payload);
-    if (!parsed.success || socket.data.hostRoomCode !== parsed.data.roomCode || !socket.data.host) throw new DomainError("UNAUTHORIZED");
-    const session = await database.sessions.getByCode(parsed.data.roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const started = await database.sessions.startMatch(session.id);
-    scheduleQuestion(parsed.data.roomCode, started.questionEndsAt);
-    if (session.visibility === "PUBLIC") await broadcastRoomCatalog(session.quizId);
-    return ackOk({ match: await publishMatch(parsed.data.roomCode) });
+  async function ensurePlayer(socket, roomNumber) {
+    if (socket.data.roomNumber !== roomNumber) return false;
+    const room = await database.rooms.get(roomNumber).catch(() => null);
+    if (!room?.currentSessionId) { socket.data.player = null; return false; }
+    if (socket.data.player?.roomNumber === roomNumber && socket.data.player.gameSessionId === room.currentSessionId) return true;
+    return Boolean(await attachIfParticipant(socket, roomNumber, room.currentSessionId));
   }
   async function answerGame(socket, payload) {
     const parsed = lobbySchemas.gameAnswer.safeParse(payload);
-    if (!parsed.success || socket.data.player?.roomCode !== parsed.data.roomCode) throw new DomainError("UNAUTHORIZED");
+    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!(await ensurePlayer(socket, parsed.data.roomNumber))) throw new DomainError("UNAUTHORIZED");
     const result = await database.sessions.answer({ gameSessionId: socket.data.player.gameSessionId, participantId: socket.data.player.participantId, questionRef: parsed.data.questionId, selectedOptionRef: parsed.data.optionId });
     return ackOk({ answered: true, pointsAwarded: result.pointsAwarded });
   }
   async function nextGame(socket, payload) {
     const parsed = lobbySchemas.gameNext.safeParse(payload);
-    if (!parsed.success || socket.data.hostRoomCode !== parsed.data.roomCode || !socket.data.host) throw new DomainError("UNAUTHORIZED");
-    const session = await database.sessions.getByCode(parsed.data.roomCode);
-    if (!session) throw new DomainError("SESSION_NOT_FOUND");
+    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!(await ensurePlayer(socket, parsed.data.roomNumber))) throw new DomainError("UNAUTHORIZED");
+    const roomNumber = parsed.data.roomNumber;
+    const sessionId = socket.data.player.gameSessionId;
+    const session = await database.sessions.getById(sessionId);
     const round = session.currentQuestionIndex + 1;
-    const locked = await withLock(publisher, gameLockKey(parsed.data.roomCode, round), GAME_LOCK_TTL_MS, async () => {
-      const current = await database.sessions.getByCode(parsed.data.roomCode);
-      if (!current || current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
-      return database.sessions.nextQuestion(current.id);
+    const locked = await withLock(publisher, gameLockKey(sessionId, round), GAME_LOCK_TTL_MS, async () => {
+      const current = await database.sessions.getById(sessionId);
+      if (current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
+      return database.sessions.nextQuestion(sessionId);
     });
     if (!locked.acquired) throw new DomainError("INVALID_STATE");
     const next = locked.value;
     if (next.finished) {
       const ranking = next.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
-      io.to(parsed.data.roomCode).emit(EVENTS.GAME_FINISHED, { ranking });
-      io.to(parsed.data.roomCode).emit(EVENTS.GAME_RANKING, ranking);
+      io.to(channel(roomNumber)).emit(EVENTS.GAME_FINISHED, { ranking });
+      io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
+      await database.rooms.reopen(session.roomId);
+      socket.data.player = null;
+      await broadcastRoom(roomNumber);
+      await broadcastIndex();
       return ackOk({ finished: true, ranking });
     }
-    scheduleQuestion(parsed.data.roomCode, next.session.questionEndsAt);
-    return ackOk({ finished: false, match: await publishMatch(parsed.data.roomCode) });
-  }
-  async function leaveRoom(socket, payload) {
-    const parsed = lobbySchemas.roomLeave.safeParse(payload);
-    if (!parsed.success || socket.data.player?.roomCode !== parsed.data.roomCode) throw new DomainError("INVALID_PAYLOAD");
-    const { roomCode, participantId, gameSessionId } = socket.data.player;
-    await database.sessions.leaveParticipant(gameSessionId, participantId);
-    await markPresence(roomCode, participantId, false);
-    socket.data.player = null;
-    if (activePlayers.get(participantId) === socket) activePlayers.delete(participantId);
-    await socket.leave(roomCode);
-    const current = await database.sessions.getByCode(roomCode);
-    const lobby = current?.matchPhase === "LOBBY" ? await publish(roomCode) : null;
-    if (lobby) io.to(roomCode).emit(EVENTS.PARTICIPANT_LEFT, { id: participantId });
-    return ackOk({ state: lobby });
+    scheduleQuestion(roomNumber, sessionId, next.session.questionEndsAt);
+    return ackOk({ finished: false, match: await publishMatch(roomNumber, sessionId) });
   }
   function bindCommand(socket, event, handler) {
     socket.on(event, async (payload, acknowledge) => {
@@ -330,26 +285,27 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
   }
   function attach(socket) {
     bindCommand(socket, EVENTS.QUIZ_LIST, listQuizzes);
-    bindCommand(socket, EVENTS.ROOM_CREATE, createRoom);
-    bindCommand(socket, EVENTS.ROOM_JOIN, joinRoom);
-    bindCommand(socket, EVENTS.ROOM_RESUME, resumePlayer);
-    bindCommand(socket, EVENTS.HOST_RESUME, resumeHost);
-    bindCommand(socket, EVENTS.ROOM_LEAVE, leaveRoom);
     bindCommand(socket, EVENTS.ROOM_LIST, listRooms);
-    bindCommand(socket, EVENTS.ROOM_WATCH, watchQuiz);
-    bindCommand(socket, EVENTS.ROOM_UNWATCH, unwatchQuiz);
-    bindCommand(socket, EVENTS.GAME_START, startGame);
+    bindCommand(socket, EVENTS.ROOM_ENTER, enterRoom);
+    bindCommand(socket, EVENTS.ROOM_LEAVE, leaveRoomHandler);
+    bindCommand(socket, EVENTS.THEME_SELECT, selectTheme);
+    bindCommand(socket, EVENTS.MATCH_START, matchStart);
     bindCommand(socket, EVENTS.GAME_ANSWER, answerGame);
     bindCommand(socket, EVENTS.GAME_NEXT, nextGame);
     socket.on("disconnect", async () => {
       if (closingState) return;
-      if (socket.data.hostRoomCode && activeHosts.get(socket.data.hostRoomCode) === socket) activeHosts.delete(socket.data.hostRoomCode);
-      const player = socket.data.player;
-      if (!player) return;
-      if (activePlayers.get(player.participantId) !== socket) return;
-      activePlayers.delete(player.participantId);
-      try { await database.sessions.disconnectParticipant(player.gameSessionId, player.participantId); await markPresence(player.roomCode, player.participantId, false); const current = await database.sessions.getByCode(player.roomCode); if (current?.matchPhase === "LOBBY") await publish(player.roomCode); else if (current) await publishMatch(player.roomCode, { emitQuestion: false }); }
-      catch (error) { logger.error(`[lobby] disconnect: ${mapError(error)}`); }
+      const roomNumber = socket.data.roomNumber;
+      if (!roomNumber) return;
+      const account = socket.data.organizer;
+      try {
+        if (account && activeMembers.get(memberKey(roomNumber, account.id)) === socket) {
+          activeMembers.delete(memberKey(roomNumber, account.id));
+          await clearPresence(roomNumber, account.id);
+        }
+        if (socket.data.player) await database.sessions.disconnectParticipant(socket.data.player.gameSessionId, socket.data.player.participantId);
+        await broadcastRoom(roomNumber);
+        await broadcastIndex();
+      } catch (error) { logger.error(`[lobby] disconnect: ${mapError(error)}`); }
     });
   }
   async function close() {

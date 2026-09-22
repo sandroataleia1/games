@@ -26,9 +26,9 @@ const GAMES = Object.freeze([
     name: "Quiz",
     shortDescription: "Perguntas e respostas em tempo real, na TV e no celular.",
     description:
-      "O organizador escolhe um quiz publicado, cria uma sala e convida participantes com um código. " +
-      "Cada rodada tem uma pergunta, um tempo limite e pontuação por velocidade de resposta. " +
-      "O host pode apenas organizar ou também jogar; a partida pode começar com um único participante.",
+      "As salas já existem, sempre abertas. Entre em uma, escolha o tema entre os quizzes publicados e " +
+      "qualquer pessoa na sala pode iniciar a partida. Cada rodada tem uma pergunta, um tempo limite e " +
+      "pontuação por velocidade de resposta; a partida pode começar com um único participante.",
     status: GAME_STATUS.AVAILABLE,
     route: "/jogos/quiz",
     icon: "Q",

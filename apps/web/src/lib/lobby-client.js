@@ -1,21 +1,7 @@
 import { io } from "socket.io-client";
 import { EVENTS, systemPongSchema } from "@quizarena/contracts";
 
-export const storageKeys = Object.freeze({
-  host: (roomCode) => `quizarena:host-token:${roomCode}`,
-  player: (roomCode) => `quizarena:player-session:${roomCode}`,
-  hostPlaying: (roomCode) => `quizarena:host-playing:${roomCode}`,
-});
-
-export function sessionValue(key) {
-  if (typeof window === "undefined") return null;
-  return window.sessionStorage.getItem(key);
-}
-export function saveSession(key, value) {
-  window.sessionStorage.setItem(key, value);
-}
-
-export function createLobbyClient({ onStatusChange, onStateChange, onQuestionResult, onFinished, onRoomCatalog, onParticipantJoined, onParticipantLeft } = {}) {
+export function createLobbyClient({ onStatusChange, onStateChange, onQuestionResult, onFinished, onRoomIndex, onParticipantJoined, onParticipantLeft } = {}) {
   const socket = io(process.env.NEXT_PUBLIC_REALTIME_URL, { autoConnect: false, reconnection: true, withCredentials: true });
   const update = (status) => onStatusChange?.(status);
   socket.on("connect", () => {
@@ -33,7 +19,7 @@ export function createLobbyClient({ onStatusChange, onStateChange, onQuestionRes
   if (onStateChange) socket.on(EVENTS.GAME_STATE, onStateChange);
   if (onQuestionResult) socket.on(EVENTS.GAME_QUESTION_RESULT, onQuestionResult);
   if (onFinished) socket.on(EVENTS.GAME_FINISHED, onFinished);
-  if (onRoomCatalog) socket.on(EVENTS.ROOM_CATALOG, onRoomCatalog);
+  if (onRoomIndex) socket.on(EVENTS.ROOM_INDEX, onRoomIndex);
   if (onParticipantJoined) socket.on(EVENTS.PARTICIPANT_JOINED, onParticipantJoined);
   if (onParticipantLeft) socket.on(EVENTS.PARTICIPANT_LEFT, onParticipantLeft);
   socket.connect();

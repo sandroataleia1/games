@@ -29,6 +29,11 @@ enum RoomVisibility {
   PRIVATE
 }
 
+enum RoomStatus {
+  OPEN
+  PLAYING
+}
+
 enum MatchPhase {
   LOBBY
   QUESTION
@@ -50,6 +55,7 @@ model Quiz {
   owner       Organizer @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   questions   Question[]
   sessions    GameSession[]
+  rooms       Room[]
 
   @@index([status])
   @@index([ownerId, updatedAt])
@@ -112,16 +118,29 @@ model QuestionOption {
   @@unique([questionId, position])
 }
 
+model Room {
+  id            String @id @default(uuid()) @db.Uuid
+  number        Int @unique
+  status        RoomStatus @default(OPEN)
+  quizId        String? @db.Uuid
+  currentSessionId String? @db.Uuid @unique
+  updatedAt     DateTime @updatedAt @db.Timestamptz(3)
+  quiz          Quiz? @relation(fields: [quizId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  currentSession GameSession? @relation("RoomCurrentSession", fields: [currentSessionId], references: [id], onDelete: SetNull, onUpdate: Restrict)
+  sessions      GameSession[] @relation("RoomSessions")
+}
+
 model GameSession {
   id            String @id @default(uuid()) @db.Uuid
   roomCode      String @unique
+  roomId        String? @db.Uuid
   quizId        String @db.Uuid
   status        GameSessionStatus @default(WAITING)
   matchPhase    MatchPhase @default(LOBBY)
   currentQuestionIndex Int?
   questionStartedAt DateTime? @db.Timestamptz(3)
   questionEndsAt DateTime? @db.Timestamptz(3)
-  hostTokenHash String
+  hostTokenHash String?
   hostUserId    String? @db.Uuid
   visibility    RoomVisibility @default(PUBLIC)
   quizSnapshot  Json @db.JsonB
@@ -131,12 +150,15 @@ model GameSession {
   cancelledAt   DateTime? @db.Timestamptz(3)
   quiz          Quiz @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   host          Organizer? @relation(fields: [hostUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  room          Room? @relation("RoomSessions", fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  currentForRoom Room? @relation("RoomCurrentSession")
   participants  Participant[]
   answers       Answer[]
 
   @@index([status, createdAt])
   @@index([quizId])
   @@index([quizId, visibility, status])
+  @@index([roomId])
 }
 
 model Participant {

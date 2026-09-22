@@ -14,7 +14,7 @@ const database = createDatabase({ databaseUrl });
 const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database });
 const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: "quizarena:test:rate:match" });
 const clients = [];
-let roomCode;
+const ROOM = 1;
 let playerAccountId;
 
 async function command(client, event, payload) {
@@ -28,7 +28,7 @@ async function connect(port, token) {
   return client;
 }
 
-test("host starts a question and player answer is evaluated by the server", async () => {
+test("a room's theme is chosen, any present player can start it, and the server evaluates answers", async () => {
   await lobby.connect();
   server.setLobby(lobby);
   await new Promise((resolve) => server.httpServer.listen(0, resolve));
@@ -38,51 +38,71 @@ test("host starts a question and player answer is evaluated by the server", asyn
   const host = await connect(server.httpServer.address().port, auth.token);
   const player = await connect(server.httpServer.address().port, bia.token);
   const quiz = (await database.organizers.publishedOwned(auth.user.id))[0];
-  const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
-  expect(created.ok).toBe(true);
-  roomCode = created.data.roomCode;
-  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode });
-  expect(joined.ok).toBe(true);
-  const forbidden = await command(player, EVENTS.GAME_START, { roomCode });
-  expect(forbidden.error.code).toBe("UNAUTHORIZED");
-  expect(forbidden.error.message).not.toBe("Não foi possível concluir a operação.");
-  const started = await command(host, EVENTS.GAME_START, { roomCode });
+
+  const enteredHost = await command(host, EVENTS.ROOM_ENTER, { roomNumber: ROOM });
+  expect(enteredHost.ok).toBe(true);
+  const enteredPlayer = await command(player, EVENTS.ROOM_ENTER, { roomNumber: ROOM });
+  expect(enteredPlayer.ok).toBe(true);
+
+  const themed = await command(host, EVENTS.THEME_SELECT, { roomNumber: ROOM, quizId: quiz.id });
+  expect(themed.ok).toBe(true);
+  expect(themed.data.room.quizId).toBe(quiz.id);
+
+  // Host picks the theme then leaves before the match starts - only the
+  // remaining player becomes a participant and gets match control.
+  const hostLeft = await command(host, EVENTS.ROOM_LEAVE, { roomNumber: ROOM });
+  expect(hostLeft.ok).toBe(true);
+
+  // Any player present can start - not just whoever picked the theme.
+  const started = await command(player, EVENTS.MATCH_START, { roomNumber: ROOM });
   expect(started.ok).toBe(true);
   expect(started.data.match.phase).toBe("QUESTION");
   expect(started.data.match.question.options[0]).not.toHaveProperty("isCorrect");
-  const answer = await command(player, EVENTS.GAME_ANSWER, { roomCode, questionId: started.data.match.question.id, optionId: started.data.match.question.options[0].id });
+
+  const answer = await command(player, EVENTS.GAME_ANSWER, { roomNumber: ROOM, questionId: started.data.match.question.id, optionId: started.data.match.question.options[0].id });
   expect(answer.ok).toBe(true);
   expect(answer.data.answered).toBe(true);
-  const duplicate = await command(player, EVENTS.GAME_ANSWER, { roomCode, questionId: started.data.match.question.id, optionId: started.data.match.question.options[0].id });
+  const duplicate = await command(player, EVENTS.GAME_ANSWER, { roomNumber: ROOM, questionId: started.data.match.question.id, optionId: started.data.match.question.options[0].id });
   expect(duplicate.error.code).toBe("ANSWER_ALREADY_SUBMITTED");
-  const session = await database.sessions.getByCode(roomCode);
-  await database.sessions.questionResult(session.id);
-  const next = await command(host, EVENTS.GAME_NEXT, { roomCode });
+
+  // A non-participant (host never became a player here) cannot advance the round.
+  const forbidden = await command(host, EVENTS.GAME_NEXT, { roomNumber: ROOM });
+  expect(forbidden.error.code).toBe("UNAUTHORIZED");
+  expect(forbidden.error.message).not.toBe("Não foi possível concluir a operação.");
+
+  const roomAfterStart = await database.rooms.get(ROOM);
+  await database.sessions.questionResult(roomAfterStart.currentSessionId);
+  const next = await command(player, EVENTS.GAME_NEXT, { roomNumber: ROOM });
   expect(next.ok).toBe(true);
   expect(next.data.match.round).toBe(2);
+
   for (let round = 2; round <= 6; round += 1) {
-    const current = await database.sessions.getByCode(roomCode);
-    await database.sessions.questionResult(current.id);
-    const advanced = await command(host, EVENTS.GAME_NEXT, { roomCode });
+    const current = await database.rooms.get(ROOM);
+    await database.sessions.questionResult(current.currentSessionId);
+    const advanced = await command(player, EVENTS.GAME_NEXT, { roomNumber: ROOM });
     expect(advanced.ok).toBe(true);
     if (round < 6) expect(advanced.data.match.round).toBe(round + 1);
     else expect(advanced.data.finished).toBe(true);
   }
+
+  const reopened = await database.rooms.get(ROOM);
+  expect(reopened.status).toBe("OPEN");
 });
 
 afterAll(async () => {
   clients.forEach((client) => client.close());
   await server.close();
-  if (roomCode) {
-    const cleanup = await database.sessions.getByCode(roomCode);
-    if (cleanup) {
-      const client = (await import("../../../packages/database/src/client.js")).createClient(databaseUrl);
-      await client.answer.deleteMany({ where: { gameSessionId: cleanup.id } });
-      await client.participant.deleteMany({ where: { gameSessionId: cleanup.id } });
-      await client.gameSession.delete({ where: { id: cleanup.id } });
-      if (playerAccountId) { await client.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await client.organizer.delete({ where: { id: playerAccountId } }); }
-      await client.$disconnect();
-    }
+  const client = (await import("../../../packages/database/src/client.js")).createClient(databaseUrl);
+  const room = await client.room.findUnique({ where: { number: ROOM } });
+  if (room) {
+    const sessions = await client.gameSession.findMany({ where: { roomId: room.id }, select: { id: true } });
+    const sessionIds = sessions.map((s) => s.id);
+    await client.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+    await client.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+    await client.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
+    await client.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
   }
+  if (playerAccountId) { await client.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await client.organizer.delete({ where: { id: playerAccountId } }); }
+  await client.$disconnect();
   await database.close();
 });
