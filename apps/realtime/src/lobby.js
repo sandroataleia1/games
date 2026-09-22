@@ -8,6 +8,7 @@ import { EVENTS, lobbySchemas, publicLobbyStateSchema } from "@quizarena/contrac
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const DEFAULT_MAX_PLAYERS = 20;
 const DEFAULT_TTL_SECONDS = 60 * 60 * 6;
+const GAME_LOCK_TTL_MS = 120000;
 const RATE_LIMITS = Object.freeze({ create: [5, 60], join: [12, 60], resume: [10, 60], command: [60, 60] });
 
 function roomKey(roomCode) { return `quizarena:lobby:room:${roomCode}`; }
@@ -135,20 +136,22 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!session || session.matchPhase !== "QUESTION") return;
     const round = session.currentQuestionIndex + 1;
     if (session.questionEndsAt && Date.now() < session.questionEndsAt.getTime()) { scheduleQuestion(roomCode, session.questionEndsAt); return; }
-      await withLock(publisher, gameLockKey(roomCode, round), 30000, async () => {
+      const locked = await withLock(publisher, gameLockKey(roomCode, round), GAME_LOCK_TTL_MS, async () => {
         const current = await database.sessions.getByCode(roomCode);
         if (!current || current.matchPhase !== "QUESTION") return;
-        const result = await database.sessions.questionResult(current.id);
-        const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
-        const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
-        const sockets = await io.in(roomCode).fetchSockets();
-        for (const socket of sockets) {
-          const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
-          socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
-        }
-        io.to(roomCode).emit(EVENTS.GAME_RANKING, ranking);
-        await publishMatch(roomCode);
+        return database.sessions.questionResult(current.id);
       });
+      if (!locked.acquired || !locked.value) return;
+      const result = locked.value;
+      const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
+      const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
+      const sockets = await io.in(roomCode).fetchSockets();
+      for (const socket of sockets) {
+        const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
+        socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
+      }
+      io.to(roomCode).emit(EVENTS.GAME_RANKING, ranking);
+      await publishMatch(roomCode);
   }
   function scheduleQuestion(roomCode, endsAt) {
     const previous = timers.get(roomCode);
@@ -255,7 +258,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     const session = await database.sessions.getByCode(parsed.data.roomCode);
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
     const round = session.currentQuestionIndex + 1;
-    const locked = await withLock(publisher, gameLockKey(parsed.data.roomCode, round), 30000, async () => {
+    const locked = await withLock(publisher, gameLockKey(parsed.data.roomCode, round), GAME_LOCK_TTL_MS, async () => {
       const current = await database.sessions.getByCode(parsed.data.roomCode);
       if (!current || current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
       return database.sessions.nextQuestion(current.id);
