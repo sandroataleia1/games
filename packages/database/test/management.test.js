@@ -73,6 +73,19 @@ test("reorders alternatives without changing identity, correctness, persistence 
   expect(snapshot.questions[0].options[0]).toMatchObject({ id: original.options[2].id, text: "C" });
 });
 
+test("published quizzes form a shared library any organizer can host from", async () => {
+  const a = await owner("shared-a");
+  let quiz = await database.organizers.createQuiz(a.user.id, { title: "Biblioteca compartilhada", description: null });
+  quiz = await database.organizers.addQuestion(a.user.id, quiz.id, question);
+  await expect(database.organizers.createRoomFromPublished(quiz.id, "SHR001", "development-test-token-not-a-real-secret-123456")).rejects.toMatchObject({ code: "QUIZ_NOT_PUBLISHED" });
+  await database.organizers.publish(a.user.id, quiz.id);
+  // outro organizador (sem relação de posse) enxerga e usa o quiz publicado de "a"
+  const visibleToOther = (await database.organizers.publishedAll()).find((item) => item.id === quiz.id);
+  expect(visibleToOther).toMatchObject({ id: quiz.id, ownerName: "Pessoa shared-a" });
+  const session = await database.organizers.createRoomFromPublished(quiz.id, "SHR002", "development-test-token-not-a-real-secret-123456");
+  expect(session.roomCode).toBe("SHR002");
+});
+
 test("legacy migration owner has no valid password or session and is not public", async () => {
   const legacy = await client.organizer.findFirst({ where: { email: { endsWith: "@migration.invalid" } } });
   if (!legacy) return;

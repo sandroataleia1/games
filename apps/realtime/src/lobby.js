@@ -171,7 +171,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     const hostToken = randomBytes(32).toString("hex");
     let session;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      try { session = await database.organizers.createOwnedRoom(socket.data.organizer.id, parsed.data.quizId, generateRoomCode(), hostToken); break; }
+      try { session = await database.organizers.createRoomFromPublished(parsed.data.quizId, generateRoomCode(), hostToken); break; }
       catch (error) { if (mapError(error) !== "ROOM_CODE_CONFLICT") throw error; if (attempt === 4) throw new DomainError("ROOM_CODE_CONFLICT"); }
     }
     await socket.join(session.roomCode);
@@ -186,7 +186,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     await ensureReady();
     if (!_socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
-    const data = await database.organizers.publishedOwned(_socket.data.organizer.id);
+    const data = await database.organizers.publishedAll();
     return ackOk({ quizzes: data });
   }
   async function joinRoom(socket, payload) {
