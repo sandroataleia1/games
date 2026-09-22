@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as createClient } from "socket.io-client";
@@ -15,6 +16,7 @@ const runtimes = [];
 const servers = [];
 const clients = [];
 const createdRoomCodes = [];
+let playerAccountId;
 
 async function instance(port) {
   const database = createDatabase({ databaseUrl });
@@ -48,6 +50,8 @@ test("host and player on separate instances share lobby state through Redis", as
   await instance(0);
   await instance(0);
   const auth = await databases[0].organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const ana = await databases[0].organizers.register({ name: "Ana", email: `ana-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  playerAccountId = ana.user.id;
   const host = await connect(servers[0].httpServer.address().port, auth.token);
   const player = await connect(servers[1].httpServer.address().port);
   const unauthenticated = await command(player, EVENTS.ROOM_CREATE, { quizId: quiz.id });
@@ -56,7 +60,9 @@ test("host and player on separate instances share lobby state through Redis", as
   expect(created.ok).toBe(true);
   createdRoomCodes.push(created.data.roomCode);
   const state = new Promise((resolve) => host.once(EVENTS.ROOM_STATE, resolve));
-  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode: created.data.roomCode, displayName: "Ana" });
+  await player.disconnect();
+  const authenticatedPlayer = await connect(servers[1].httpServer.address().port, ana.token);
+  const joined = await command(authenticatedPlayer, EVENTS.ROOM_JOIN, { roomCode: created.data.roomCode });
   expect(joined.ok).toBe(true);
   expect((await state).playerCount).toBe(1);
   expect(joined.data.state.players[0].displayName).toBe("Ana");
@@ -74,5 +80,6 @@ afterAll(async () => {
       await cleanup.gameSession.delete({ where: { id: session.id } });
     }
   }
+  if (playerAccountId) { await cleanup.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await cleanup.organizer.delete({ where: { id: playerAccountId } }); }
   await cleanup.$disconnect();
 });

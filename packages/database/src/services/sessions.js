@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { parse, DomainError } from "../errors/domain-error.js";
 import { transaction } from "../repositories/transaction.js";
@@ -159,6 +160,43 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
           parse(roomCodeSchema, code, "ROOM_CODE_INVALID"),
         ),
       );
+    },
+    async publicRoomsForQuiz(quizId) {
+      const rows = await sessionRepository(client).publicRoomsForQuiz(parse(idSchema, quizId, "QUIZ_INVALID"));
+      return rows.map((row) => ({
+        roomCode: row.roomCode,
+        quizId: row.quizId,
+        hostName: row.host?.name ?? null,
+        playerCount: row._count.participants,
+        maxPlayers,
+        status: row.status,
+        createdAt: row.createdAt,
+        canJoin: row._count.participants < maxPlayers,
+      }));
+    },
+    async resumePresenceForAccount(gameSessionId, userId) {
+      const ids = { gameSessionId: parse(idSchema, gameSessionId, "SESSION_INVALID"), userId: parse(idSchema, userId, "PARTICIPANT_INVALID") };
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const row = await repo.participantByUser(ids.gameSessionId, ids.userId);
+        if (!row) return null;
+        return participantDTO(await repo.updatePresence(row.id, ids.gameSessionId, true));
+      });
+    },
+    async enterAsAccount({ gameSessionId, userId, displayName }) {
+      const ids = parse(z.object({ gameSessionId: idSchema, userId: idSchema }).strict(), { gameSessionId, userId }, "PARTICIPANT_INVALID");
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, ids.gameSessionId);
+        const existing = await repo.participantByUser(ids.gameSessionId, ids.userId);
+        if (existing) return { participant: participantDTO(await repo.updatePresence(existing.id, ids.gameSessionId, true)), created: false };
+        if (session.status !== "WAITING") throw new DomainError("SESSION_NOT_WAITING");
+        if (await repo.countParticipants(ids.gameSessionId) >= maxPlayers) throw new DomainError("ROOM_FULL");
+        const name = parse(displayNameSchema, displayName, "PARTICIPANT_INVALID").replace(/\s+/gu, " ");
+        const reconnectTokenHash = await hashToken(randomBytes(32).toString("hex"));
+        const created = await repo.addParticipant({ gameSessionId: ids.gameSessionId, userId: ids.userId, displayName: name, normalizedName: name.toLocaleLowerCase("pt-BR"), reconnectTokenHash });
+        return { participant: participantDTO(created), created: true };
+      }, "PARTICIPANT_ALREADY_JOINED");
     },
     async registerParticipant(input) {
       const { gameSessionId, displayName, reconnectToken } = parse(

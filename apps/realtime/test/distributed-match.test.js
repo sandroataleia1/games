@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
@@ -14,6 +15,7 @@ const redisUrl = process.env.REDIS_URL;
 const resources = [];
 const clients = [];
 const roomCodes = [];
+const playerAccountIds = [];
 const testRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 async function instance() {
@@ -62,6 +64,7 @@ async function cleanup() {
       await client.gameSession.delete({ where: { id: session.id } });
     }
   }
+  if (playerAccountIds.length) { await client.organizerSession.deleteMany({ where: { ownerId: { in: playerAccountIds } } }); await client.organizer.deleteMany({ where: { id: { in: playerAccountIds } } }); }
   await client.$disconnect();
   await Promise.all(resources.map(({ database }) => database.close()));
 }
@@ -70,8 +73,10 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const instanceA = await instance();
   const instanceB = await instance();
   const auth = await instanceA.database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const distribuido = await instanceA.database.organizers.register({ name: "Distribuido", email: `distribuido-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  playerAccountIds.push(distribuido.user.id);
   const host = await client(instanceA.port, auth.token);
-  const player = await client(instanceB.port);
+  const player = await client(instanceB.port, distribuido.token);
   const counts = { host: {}, player: {} };
   const received = { host: {}, player: {} };
   function countEvents(label, socket) {
@@ -88,7 +93,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   expect(created.ok).toBe(true);
   const roomCode = created.data.roomCode;
   roomCodes.push(roomCode);
-  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode, displayName: "Distribuido" });
+  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode });
   expect(joined.ok).toBe(true);
   const questionOnB = waitFor(player, EVENTS.GAME_QUESTION);
   const resultOnA = waitFor(host, EVENTS.GAME_QUESTION_RESULT);
@@ -142,10 +147,11 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   expect(projected.question.endsAt).toBe(current.questionEndsAt.toISOString());
   const resumedSocket = player;
   resumedSocket.close();
-  const replacement = await client(instanceA.port);
+  const replacement = await client(instanceA.port, distribuido.token);
   countEvents("player", replacement);
-  const resumed = await command(replacement, EVENTS.ROOM_RESUME, { roomCode, participantId: joined.data.participantId, reconnectToken: joined.data.reconnectToken });
+  const resumed = await command(replacement, EVENTS.ROOM_JOIN, { roomCode });
   expect(resumed.ok).toBe(true);
+  expect(resumed.data.participantId).toBe(joined.data.participantId);
   expect(resumed.data.match.round).toBe(2);
   expect(resumed.data.match.phase).toBe("QUESTION");
   expect(received.host[EVENTS.GAME_QUESTION].map(({ round }) => round)).toEqual([1, 2]);
@@ -182,13 +188,15 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
 test("two database connections reject concurrent start transitions", async () => {
   const instanceA = resources[0] || await instance();
   const auth = await instanceA.database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const concorrente = await instanceA.database.organizers.register({ name: "Concorrente", email: `concorrente-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  playerAccountIds.push(concorrente.user.id);
   const host = await client(instanceA.port, auth.token);
   const quiz = (await instanceA.database.organizers.publishedOwned(auth.user.id))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   const roomCode = created.data.roomCode;
   roomCodes.push(roomCode);
-  const joinedSocket = await client(instanceA.port);
-  const joined = await command(joinedSocket, EVENTS.ROOM_JOIN, { roomCode, displayName: "Concorrente" });
+  const joinedSocket = await client(instanceA.port, concorrente.token);
+  const joined = await command(joinedSocket, EVENTS.ROOM_JOIN, { roomCode });
   const session = await instanceA.database.sessions.getByCode(roomCode);
   const databaseB = createDatabase({ databaseUrl });
   const outcomes = await Promise.allSettled([instanceA.database.sessions.startMatch(session.id), databaseB.sessions.startMatch(session.id)]);

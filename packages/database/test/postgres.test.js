@@ -211,25 +211,82 @@ test("persiste sessão, consulta por ID/código e armazena apenas hash", async (
     }),
   ).rejects.toMatchObject({ code: "QUIZ_INVALID" });
 });
-test("nomes normalizados duplicados na mesma sessão conflitam; outra sessão permite", async () => {
+test("nomes normalizados duplicados na mesma sessão são permitidos (identidade agora é por conta)", async () => {
   const s = await session();
-  const results = await Promise.allSettled([
+  const [first, second] = await Promise.all([
     participant(s.id, "  Ana   Silva "),
     participant(s.id, "ana silva"),
   ]);
-  expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-  expect(results.find((r) => r.status === "rejected").reason.code).toBe(
-    "PARTICIPANT_NAME_CONFLICT",
-  );
-  const p = results.find((r) => r.status === "fulfilled").value;
-  expect(p.normalizedName).toBe("ana silva");
-  expect(p.score).toBe(0);
-  expect(p).not.toHaveProperty("reconnectTokenHash");
-  const row = await client.participant.findUnique({ where: { id: p.id } });
+  expect(first.id).not.toBe(second.id);
+  expect(first.normalizedName).toBe("ana silva");
+  expect(second.normalizedName).toBe("ana silva");
+  expect(first.score).toBe(0);
+  expect(first).not.toHaveProperty("reconnectTokenHash");
+  const row = await client.participant.findUnique({ where: { id: first.id } });
   expect(row.reconnectTokenHash).toMatch(/^scrypt\$v1\$/);
   expect(row.reconnectTokenHash).not.toContain(TEST_TOKEN);
   const other = await session();
-  expect((await participant(other.id, "ANA SILVA")).id).not.toBe(p.id);
+  expect((await participant(other.id, "ANA SILVA")).id).not.toBe(first.id);
+});
+test("uma conta gera no máximo uma participação por sessão; reentrada resume a mesma", async () => {
+  const s = await session();
+  const guest = await database.organizers.register({ name: "Convidado Teste", email: `convidado-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  try {
+    const entered = await database.sessions.enterAsAccount({ gameSessionId: s.id, userId: guest.user.id, displayName: guest.user.name });
+    const resumed = await database.sessions.enterAsAccount({ gameSessionId: s.id, userId: guest.user.id, displayName: guest.user.name });
+    expect(entered.participant.id).toBe(resumed.participant.id);
+    expect(entered.created).toBe(true);
+    expect(resumed.created).toBe(false);
+    expect(await client.participant.count({ where: { gameSessionId: s.id, userId: guest.user.id } })).toBe(1);
+    const other = await session();
+    const elsewhere = await database.sessions.enterAsAccount({ gameSessionId: other.id, userId: guest.user.id, displayName: guest.user.name });
+    expect(elsewhere.participant.id).not.toBe(entered.participant.id);
+  } finally {
+    await client.organizerSession.deleteMany({ where: { ownerId: guest.user.id } });
+    await client.participant.deleteMany({ where: { userId: guest.user.id } });
+    await client.organizer.delete({ where: { id: guest.user.id } });
+  }
+});
+test("salas privadas ficam fora da descoberta pública; salas públicas aparecem com vaga e host", async () => {
+  const quiz = await published();
+  const host = await database.organizers.register({ name: "Anfitriã", email: `anfitria-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  try {
+    const publicRoom = await database.organizers.createRoomFromPublished(quiz.id, `PUB${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PUBLIC" });
+    const privateRoom = await database.organizers.createRoomFromPublished(quiz.id, `PRV${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PRIVATE" });
+    const discovered = await database.sessions.publicRoomsForQuiz(quiz.id);
+    const codes = discovered.map((room) => room.roomCode);
+    expect(codes).toContain(publicRoom.roomCode);
+    expect(codes).not.toContain(privateRoom.roomCode);
+    const entry = discovered.find((room) => room.roomCode === publicRoom.roomCode);
+    expect(entry).toMatchObject({ quizId: quiz.id, hostName: "Anfitriã", playerCount: 0, status: "WAITING", canJoin: true });
+    expect(entry).not.toHaveProperty("hostTokenHash");
+    expect(entry).not.toHaveProperty("hostUserId");
+    await client.gameSession.deleteMany({ where: { id: { in: [publicRoom.id, privateRoom.id] } } });
+  } finally {
+    await client.organizerSession.deleteMany({ where: { ownerId: host.user.id } });
+    await client.organizer.delete({ where: { id: host.user.id } });
+  }
+});
+test("host que também joga conta como participante e permite iniciar sozinho; somente-organizar não conta", async () => {
+  const quiz = await published();
+  const host = await database.organizers.register({ name: "Organizador Solo", email: `solo-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  try {
+    const soloRoom = await database.organizers.createRoomFromPublished(quiz.id, `SOL${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PRIVATE" });
+    await database.sessions.enterAsAccount({ gameSessionId: soloRoom.id, userId: host.user.id, displayName: host.user.name });
+    const started = await database.sessions.startMatch(soloRoom.id);
+    expect(started.matchPhase).toBe("QUESTION");
+    await client.participant.deleteMany({ where: { gameSessionId: soloRoom.id } });
+    await client.gameSession.delete({ where: { id: soloRoom.id } });
+
+    const organizeOnlyRoom = await database.organizers.createRoomFromPublished(quiz.id, `ORG${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PRIVATE" });
+    await expect(database.sessions.startMatch(organizeOnlyRoom.id)).rejects.toMatchObject({ code: "NO_PARTICIPANTS" });
+    await client.gameSession.delete({ where: { id: organizeOnlyRoom.id } });
+  } finally {
+    await client.participant.deleteMany({ where: { userId: host.user.id } });
+    await client.gameSession.deleteMany({ where: { hostUserId: host.user.id } });
+    await client.organizerSession.deleteMany({ where: { ownerId: host.user.id } });
+    await client.organizer.delete({ where: { id: host.user.id } });
+  }
 });
 test("snapshot histórico independe da edição e exclusão das perguntas originais", async () => {
   const { s, p } = await activeSession();

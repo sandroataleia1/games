@@ -12,6 +12,13 @@ export function sessionRepository(db) {
       db.participant.findUnique({
         where: { id_gameSessionId: { id, gameSessionId } },
       }),
+    participantByUser: (gameSessionId, userId) => db.participant.findUnique({ where: { gameSessionId_userId: { gameSessionId, userId } } }),
+    publicRoomsForQuiz: (quizId) =>
+      db.gameSession.findMany({
+        where: { quizId, visibility: "PUBLIC", status: "WAITING" },
+        include: { host: { select: { name: true } }, _count: { select: { participants: { where: { disconnectedAt: null } } } } },
+        orderBy: { createdAt: "desc" },
+      }),
     updatePresence: (id, gameSessionId, connected) =>
       db.participant.update({
         where: { id_gameSessionId: { id, gameSessionId } },

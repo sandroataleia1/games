@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
@@ -14,6 +15,7 @@ const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok"
 const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: "quizarena:test:rate:match" });
 const clients = [];
 let roomCode;
+let playerAccountId;
 
 async function command(client, event, payload) {
   return new Promise((resolve) => client.timeout(5000).emit(event, payload, (_error, response) => resolve(response)));
@@ -31,13 +33,15 @@ test("host starts a question and player answer is evaluated by the server", asyn
   server.setLobby(lobby);
   await new Promise((resolve) => server.httpServer.listen(0, resolve));
   const auth = await database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const bia = await database.organizers.register({ name: "Bia", email: `bia-${randomUUID()}@example.com`, password: "SenhaSegura123" });
+  playerAccountId = bia.user.id;
   const host = await connect(server.httpServer.address().port, auth.token);
-  const player = await connect(server.httpServer.address().port);
+  const player = await connect(server.httpServer.address().port, bia.token);
   const quiz = (await database.organizers.publishedOwned(auth.user.id))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   expect(created.ok).toBe(true);
   roomCode = created.data.roomCode;
-  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode, displayName: "Bia" });
+  const joined = await command(player, EVENTS.ROOM_JOIN, { roomCode });
   expect(joined.ok).toBe(true);
   const forbidden = await command(player, EVENTS.GAME_START, { roomCode });
   expect(forbidden.error.code).toBe("UNAUTHORIZED");
@@ -75,6 +79,7 @@ afterAll(async () => {
       await client.answer.deleteMany({ where: { gameSessionId: cleanup.id } });
       await client.participant.deleteMany({ where: { gameSessionId: cleanup.id } });
       await client.gameSession.delete({ where: { id: cleanup.id } });
+      if (playerAccountId) { await client.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await client.organizer.delete({ where: { id: playerAccountId } }); }
       await client.$disconnect();
     }
   }

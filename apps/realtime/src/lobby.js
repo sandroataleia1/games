@@ -20,7 +20,7 @@ function generateRoomCode() {
   return [...bytes].map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
 }
 function errorMessage(code) {
-  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala não está aguardando jogadores.", ROOM_FULL: "A sala está cheia.", ROOM_CODE_CONFLICT: "Não foi possível gerar um código de sala.", NAME_CONFLICT: "Este nome já está sendo usado.", INVALID_HOST_TOKEN: "Token do organizador inválido.", INVALID_RECONNECT_TOKEN: "Token de reconexão inválido.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
+  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala não está aguardando jogadores.", ROOM_FULL: "A sala está cheia.", ROOM_CODE_CONFLICT: "Não foi possível gerar um código de sala.", NAME_CONFLICT: "Este nome já está sendo usado.", INVALID_HOST_TOKEN: "Token do organizador inválido.", INVALID_RECONNECT_TOKEN: "Token de reconexão inválido.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", UNAUTHENTICATED: "É necessário entrar com sua conta.", PARTICIPANT_ALREADY_JOINED: "Você já está participando desta sala.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
 }
 function ackOk(data) { return { ok: true, data }; }
 function ackError(code) { return { ok: false, error: { code, message: errorMessage(code) } }; }
@@ -56,6 +56,7 @@ function publicState(session, presence, maxPlayers) {
     schemaVersion: 1,
     roomCode: session.roomCode,
     status: session.status,
+    visibility: session.visibility,
     quiz: { id: session.quizId, title: session.quizSnapshot.title, questionCount: session.quizSnapshot.questions.length },
     players,
     playerCount: players.length,
@@ -110,10 +111,17 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
     return publicState(session, await presence(roomCode, session), safeMaxPlayers);
   }
+  async function broadcastRoomCatalog(quizId) {
+    const rooms = await database.sessions.publicRoomsForQuiz(quizId);
+    io.to(`quiz:${quizId}`).emit(EVENTS.ROOM_CATALOG, { quizId, rooms });
+  }
   async function publish(roomCode) {
-    const current = await state(roomCode);
+    const session = await database.sessions.getByCode(roomCode);
+    if (!session) throw new DomainError("SESSION_NOT_FOUND");
+    const current = publicState(session, await presence(roomCode, session), safeMaxPlayers);
     await publisher.set(roomKey(roomCode), JSON.stringify(current), { EX: ttlSeconds });
     io.to(roomCode).emit(EVENTS.ROOM_STATE, current);
+    if (session.visibility === "PUBLIC") await broadcastRoomCatalog(session.quizId);
     return current;
   }
   async function matchState(roomCode) {
@@ -163,6 +171,13 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (connected) await publisher.set(key, "1", { EX: ttlSeconds });
     else await publisher.del(key);
   }
+  async function attachPlayer(socket, gameSessionId, roomCode, account) {
+    const { participant } = await database.sessions.enterAsAccount({ gameSessionId, userId: account.id, displayName: account.name });
+    socket.data.player = { roomCode, participantId: participant.id, gameSessionId };
+    replaceActive(activePlayers, participant.id, socket);
+    await markPresence(roomCode, participant.id, true);
+    return participant;
+  }
   async function createRoom(socket, payload) {
     await rateLimit("create", socket.handshake.address);
     const parsed = lobbySchemas.roomCreate.safeParse(payload);
@@ -171,15 +186,16 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     const hostToken = randomBytes(32).toString("hex");
     let session;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      try { session = await database.organizers.createRoomFromPublished(parsed.data.quizId, generateRoomCode(), hostToken); break; }
+      try { session = await database.organizers.createRoomFromPublished(parsed.data.quizId, generateRoomCode(), hostToken, { hostUserId: socket.data.organizer.id, visibility: parsed.data.visibility }); break; }
       catch (error) { if (mapError(error) !== "ROOM_CODE_CONFLICT") throw error; if (attempt === 4) throw new DomainError("ROOM_CODE_CONFLICT"); }
     }
     await socket.join(session.roomCode);
     socket.data.hostRoomCode = session.roomCode;
     socket.data.host = true;
     replaceActive(activeHosts, session.roomCode, socket);
+    if (parsed.data.hostPlays) await attachPlayer(socket, session.id, session.roomCode, socket.data.organizer);
     await publish(session.roomCode);
-    return ackOk({ roomCode: session.roomCode, hostToken, state: await state(session.roomCode) });
+    return ackOk({ roomCode: session.roomCode, hostToken, playing: parsed.data.hostPlays, state: await state(session.roomCode) });
   }
   async function listQuizzes(_socket, payload) {
     const parsed = lobbySchemas.quizList.safeParse(payload ?? {});
@@ -193,17 +209,15 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     await rateLimit("join", socket.handshake.address);
     const parsed = lobbySchemas.roomJoin.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
     const session = await database.sessions.getByCode(parsed.data.roomCode);
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    const reconnectToken = randomBytes(32).toString("hex");
-    const player = await database.sessions.registerParticipant({ gameSessionId: session.id, displayName: parsed.data.displayName, reconnectToken });
+    const account = socket.data.organizer;
+    const player = await attachPlayer(socket, session.id, session.roomCode, parsed.data.displayName ? { ...account, name: parsed.data.displayName } : account);
     await socket.join(session.roomCode);
-    socket.data.player = { roomCode: session.roomCode, participantId: player.id, gameSessionId: session.id };
-    replaceActive(activePlayers, player.id, socket);
-    await markPresence(session.roomCode, player.id, true);
-    const lobby = await publish(session.roomCode);
-    io.to(session.roomCode).emit(EVENTS.PARTICIPANT_JOINED, lobby.players.find(({ id }) => id === player.id));
-    return ackOk({ reconnectToken, participantId: player.id, state: lobby });
+    const lobby = session.matchPhase === "LOBBY" ? await publish(session.roomCode) : null;
+    if (lobby) io.to(session.roomCode).emit(EVENTS.PARTICIPANT_JOINED, lobby.players.find(({ id }) => id === player.id));
+    return ackOk({ participantId: player.id, state: lobby, match: await matchState(session.roomCode) });
   }
   async function resumePlayer(socket, payload) {
     await rateLimit("resume", socket.handshake.address);
@@ -224,6 +238,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     await rateLimit("resume", socket.handshake.address);
     const parsed = lobbySchemas.hostResume.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
     const session = await database.sessions.getByCode(parsed.data.roomCode);
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
     await database.sessions.resumeHost({ gameSessionId: session.id, hostToken: parsed.data.hostToken });
@@ -231,8 +246,29 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     socket.data.hostRoomCode = session.roomCode;
     socket.data.host = true;
     replaceActive(activeHosts, session.roomCode, socket);
+    const existingPlayer = await database.sessions.resumePresenceForAccount(session.id, socket.data.organizer.id);
+    if (existingPlayer) { socket.data.player = { roomCode: session.roomCode, participantId: existingPlayer.id, gameSessionId: session.id }; replaceActive(activePlayers, existingPlayer.id, socket); await markPresence(session.roomCode, existingPlayer.id, true); }
     const lobby = session.matchPhase === "LOBBY" ? await publish(session.roomCode) : null;
-    return ackOk({ state: lobby, match: await matchState(session.roomCode) });
+    return ackOk({ state: lobby, match: await matchState(session.roomCode), playing: Boolean(existingPlayer) });
+  }
+  async function listRooms(socket, payload) {
+    const parsed = lobbySchemas.roomList.safeParse(payload);
+    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
+    return ackOk({ rooms: await database.sessions.publicRoomsForQuiz(parsed.data.quizId) });
+  }
+  async function watchQuiz(socket, payload) {
+    const parsed = lobbySchemas.roomWatch.safeParse(payload);
+    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
+    await socket.join(`quiz:${parsed.data.quizId}`);
+    return ackOk({ rooms: await database.sessions.publicRoomsForQuiz(parsed.data.quizId) });
+  }
+  async function unwatchQuiz(socket, payload) {
+    const parsed = lobbySchemas.roomUnwatch.safeParse(payload);
+    if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
+    await socket.leave(`quiz:${parsed.data.quizId}`);
+    return ackOk({});
   }
   async function startGame(socket, payload) {
     const parsed = lobbySchemas.gameStart.safeParse(payload);
@@ -241,6 +277,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
     const started = await database.sessions.startMatch(session.id);
     scheduleQuestion(parsed.data.roomCode, started.questionEndsAt);
+    if (session.visibility === "PUBLIC") await broadcastRoomCatalog(session.quizId);
     return ackOk({ match: await publishMatch(parsed.data.roomCode) });
   }
   async function answerGame(socket, payload) {
@@ -296,6 +333,9 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     bindCommand(socket, EVENTS.ROOM_RESUME, resumePlayer);
     bindCommand(socket, EVENTS.HOST_RESUME, resumeHost);
     bindCommand(socket, EVENTS.ROOM_LEAVE, leaveRoom);
+    bindCommand(socket, EVENTS.ROOM_LIST, listRooms);
+    bindCommand(socket, EVENTS.ROOM_WATCH, watchQuiz);
+    bindCommand(socket, EVENTS.ROOM_UNWATCH, unwatchQuiz);
     bindCommand(socket, EVENTS.GAME_START, startGame);
     bindCommand(socket, EVENTS.GAME_ANSWER, answerGame);
     bindCommand(socket, EVENTS.GAME_NEXT, nextGame);

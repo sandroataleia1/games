@@ -201,6 +201,30 @@
 .create label { display: block; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 .lobbyHero { padding: 70px 0 50px; text-align: center; }.roomCode { margin: 12px 0; font-size: clamp(58px, 12vw, 120px); letter-spacing: .1em; color: #c5f16b; }.lobbyHero p { color: var(--muted); font-size: 18px; }
 .playerHeader { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); padding: 26px 0 16px; }.playerHeader strong { color: #c5f16b; font-size: 22px; }.players { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; padding: 0; list-style: none; }.players li { display: flex; align-items: center; gap: 9px; min-height: 48px; padding: 10px 12px; background: #302445; border-radius: 10px; }.players small { margin-left: auto; color: var(--muted); font-size: 11px; }.playerDot { width: 9px; height: 9px; border-radius: 50%; background: #ff9b9b; }.playerDot[data-status="CONNECTED"] { background: #c5f16b; }.playerForm { max-width: 560px; margin: 80px auto 50px; }.playerForm h1 { margin: 18px 0; font-size: clamp(36px, 6vw, 64px); line-height: 1.05; }.playerForm h1 em { color: #c7b2ff; font-style: normal; }.playerForm p { color: var(--muted); line-height: 1.6; }.playerForm form { display: grid; gap: 10px; margin-top: 28px; }.playerForm form label { color: var(--muted); font-size: 12px; }.playerForm form input { min-height: 54px; padding: 12px 14px; color: var(--ink); background: #171222; border: 1px solid #807291; border-radius: 12px; }.playerForm form button { margin-top: 10px; }.playerName { color: #c5f16b !important; font-size: 28px; font-weight: 700; }.matchPanel { max-width: 760px; margin: 50px auto; }.matchPanel h1, .matchPanel h2 { margin: 16px 0 24px; }.answerGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }.answerTile { min-height: 64px; padding: 14px; color: var(--ink); background: #302445; border: 1px solid #746581; border-radius: 12px; font-weight: 700; text-align: left; }.answerTile:hover, .selectedAnswer { border-color: #c5f16b; background: #3e4a2d; }.answerTile:disabled { cursor: not-allowed; opacity: .85; }.ranking { display: grid; gap: 10px; padding: 0; list-style: none; }.ranking li { display: flex; justify-content: space-between; padding: 14px; background: #302445; border-radius: 10px; }.ranking strong { color: #c5f16b; }
+.games { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; margin-top: 8px; }
+.gameCard { display: flex; flex-direction: column; gap: 14px; padding: 24px; background: #302445; border: 1px solid var(--line); border-radius: 18px; }
+.gameCard .mark { transform: none; }
+.gameCard h3 { margin: 0; font-size: 22px; }
+.gameCard p { margin: 0; color: var(--muted); line-height: 1.5; flex-grow: 1; }
+.badge { align-self: flex-start; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: 700; padding: 4px 10px; border-radius: 999px; background: #3e4a2d; color: #c5f16b; }
+.badge[data-status="COMING_SOON"] { background: #4a3a2d; color: #f5c76b; }
+.badge[data-status="DISABLED"] { background: #3a2c2c; color: #ff9b9b; }
+.navLinks { display: flex; gap: 10px; align-items: center; }
+.navLinks a, .navLinks button { color: #eee7ff; text-decoration: none; }
+.quizGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 18px; }
+.quizCard { display: flex; flex-direction: column; gap: 10px; padding: 20px; background: #302445; border: 1px solid var(--line); border-radius: 16px; }
+.quizCard h3 { margin: 0; }
+.quizCard p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.quizCard .meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.quizCard .cardActions { display: flex; gap: 10px; margin-top: auto; }
+.roomList { display: grid; gap: 10px; padding: 0; list-style: none; margin: 0; }
+.roomCard { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 16px; background: #302445; border: 1px solid var(--line); border-radius: 12px; }
+.roomCard .roomMeta { display: flex; flex-direction: column; gap: 4px; }
+.roomCard .roomMeta strong { color: #c5f16b; letter-spacing: .05em; }
+.roomCard .roomMeta small { color: var(--muted); }
+.visibilityToggle { display: flex; gap: 10px; }
+.visibilityToggle label { display: flex; align-items: center; gap: 6px; padding: 10px 14px; border: 1px solid #746581; border-radius: 10px; cursor: pointer; }
+.visibilityToggle input { margin: 0; }
 @media (max-width: 700px) {
   .shell {
     padding: 16px;
@@ -236,4 +260,8 @@
   }
   .answerGrid { grid-template-columns: 1fr; }
   .matchPanel { margin: 34px auto; }
+  .games, .quizGrid { grid-template-columns: 1fr; }
+  .navLinks { flex-wrap: wrap; }
+  .roomCard { flex-direction: column; align-items: flex-start; }
+  .visibilityToggle { flex-direction: column; }
 }

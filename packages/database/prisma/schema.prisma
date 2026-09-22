@@ -24,6 +24,11 @@ enum GameSessionStatus {
   CANCELLED
 }
 
+enum RoomVisibility {
+  PUBLIC
+  PRIVATE
+}
+
 enum MatchPhase {
   LOBBY
   QUESTION
@@ -59,6 +64,8 @@ model Organizer {
   updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
   quizzes      Quiz[]
   sessions     OrganizerSession[]
+  hostedGames  GameSession[]
+  participations Participant[]
 
   @@unique([email])
 }
@@ -115,22 +122,27 @@ model GameSession {
   questionStartedAt DateTime? @db.Timestamptz(3)
   questionEndsAt DateTime? @db.Timestamptz(3)
   hostTokenHash String
+  hostUserId    String? @db.Uuid
+  visibility    RoomVisibility @default(PUBLIC)
   quizSnapshot  Json @db.JsonB
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   startedAt     DateTime? @db.Timestamptz(3)
   finishedAt    DateTime? @db.Timestamptz(3)
   cancelledAt   DateTime? @db.Timestamptz(3)
   quiz          Quiz @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  host          Organizer? @relation(fields: [hostUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   participants  Participant[]
   answers       Answer[]
 
   @@index([status, createdAt])
   @@index([quizId])
+  @@index([quizId, visibility, status])
 }
 
 model Participant {
   id                 String @id @default(uuid()) @db.Uuid
   gameSessionId      String @db.Uuid
+  userId             String? @db.Uuid
   displayName        String
   normalizedName     String
   reconnectTokenHash String
@@ -139,10 +151,12 @@ model Participant {
   lastSeenAt         DateTime @default(now()) @db.Timestamptz(3)
   disconnectedAt     DateTime? @db.Timestamptz(3)
   gameSession        GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  user               Organizer? @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   answers            Answer[]
 
-  @@unique([gameSessionId, normalizedName])
+  @@unique([gameSessionId, userId])
   @@unique([id, gameSessionId])
+  @@index([gameSessionId, normalizedName])
 }
 
 model Answer {

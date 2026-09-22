@@ -1,6 +1,7 @@
 import { z } from "zod";
 export * from "./domain.js";
 export * from "./lobby.js";
+export * from "./games.js";
 
 const timestamp = z.string().datetime({ offset: true });
 export const systemPingSchema = z

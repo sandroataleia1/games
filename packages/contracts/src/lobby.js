@@ -5,13 +5,18 @@ const token = z.string().min(32).max(512);
 const playerName = z.string().min(2).max(24);
 const empty = z.object({}).strict();
 
+const roomVisibility = z.enum(["PUBLIC", "PRIVATE"]);
+
 export const lobbySchemas = Object.freeze({
   quizList: empty,
-  roomCreate: z.object({ quizId: z.uuid() }).strict(),
-  roomJoin: z.object({ roomCode, displayName: playerName }).strict(),
+  roomCreate: z.object({ quizId: z.uuid(), visibility: roomVisibility.default("PUBLIC"), hostPlays: z.boolean().default(false) }).strict(),
+  roomJoin: z.object({ roomCode, displayName: playerName.optional() }).strict(),
   roomResume: z.object({ roomCode, participantId: z.uuid(), reconnectToken: token }).strict(),
   hostResume: z.object({ roomCode, hostToken: token }).strict(),
   roomLeave: z.object({ roomCode }).strict(),
+  roomList: z.object({ quizId: z.uuid() }).strict(),
+  roomWatch: z.object({ quizId: z.uuid() }).strict(),
+  roomUnwatch: z.object({ quizId: z.uuid() }).strict(),
   gameStart: z.object({ roomCode }).strict(),
   gameAnswer: z.object({ roomCode, questionId: z.uuid(), optionId: z.uuid() }).strict(),
   gameNext: z.object({ roomCode }).strict(),
@@ -28,11 +33,23 @@ export const publicLobbyStateSchema = z.object({
   schemaVersion: z.literal(1),
   roomCode,
   status: z.literal("WAITING"),
+  visibility: roomVisibility,
   quiz: z.object({ id: z.uuid(), title: z.string(), questionCount: z.number().int().nonnegative() }).strict(),
   players: z.array(publicPlayerSchema),
   playerCount: z.number().int().nonnegative(),
   maxPlayers: z.number().int().positive(),
   serverTime: z.string().datetime({ offset: true }),
+}).strict();
+
+export const publicRoomSchema = z.object({
+  roomCode,
+  quizId: z.uuid(),
+  hostName: z.string().nullable(),
+  playerCount: z.number().int().nonnegative(),
+  maxPlayers: z.number().int().positive(),
+  status: z.enum(["WAITING", "ACTIVE", "FINISHED", "CANCELLED"]),
+  createdAt: z.string().datetime({ offset: true }),
+  canJoin: z.boolean(),
 }).strict();
 
 export const EVENTS = Object.freeze({
@@ -43,6 +60,10 @@ export const EVENTS = Object.freeze({
   ROOM_JOIN: "v1:room:join",
   ROOM_RESUME: "v1:room:resume",
   ROOM_LEAVE: "v1:room:leave",
+  ROOM_LIST: "v1:room:list",
+  ROOM_WATCH: "v1:room:watch",
+  ROOM_UNWATCH: "v1:room:unwatch",
+  ROOM_CATALOG: "v1:room:catalog",
   HOST_RESUME: "v1:host:resume",
   ROOM_STATE: "v1:room:state",
   PARTICIPANT_JOINED: "v1:room:participant-joined",
@@ -64,6 +85,7 @@ export const errorCodes = Object.freeze([
   "RATE_LIMITED", "DEPENDENCY_UNAVAILABLE", "INTERNAL_ERROR", "UNAUTHORIZED", "INVALID_TOKEN",
   "SESSION_NOT_FOUND", "INVALID_STATE", "NO_PARTICIPANTS", "NO_QUESTIONS", "QUESTION_EXPIRED",
   "ANSWER_ALREADY_SUBMITTED", "INVALID_ANSWER", "PARTICIPANT_NOT_ACTIVE", "COORDINATION_UNAVAILABLE",
+  "UNAUTHENTICATED", "PARTICIPANT_ALREADY_JOINED",
 ]);
 
 export const matchPhaseSchema = z.enum(["LOBBY", "QUESTION", "QUESTION_RESULT", "FINISHED"]);
