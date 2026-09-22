@@ -3,13 +3,16 @@ import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { Server } from "socket.io";
 import { EVENTS, systemPingSchema } from "@quizarena/contracts";
+import { createDatabase } from "@quizarena/database";
 import { createApp } from "./app.js";
 import { createDependencyChecks } from "./dependencies.js";
 import { createHealthChecker } from "./health.js";
+import { createLobbyRuntime } from "./lobby.js";
 
 export function createRealtimeServer({
   healthChecker,
   dependencies,
+  lobby = null,
   webOrigin = "http://localhost:3000",
 }) {
   const httpServer = http.createServer(createApp({ healthChecker, webOrigin }));
@@ -32,17 +35,21 @@ export function createRealtimeServer({
       reply(response);
     }),
   );
+  let activeLobby = lobby;
+  io.on("connection", (socket) => activeLobby?.attach(socket));
   let closing;
   return {
     httpServer,
     io,
+    setLobby(runtime) { activeLobby = runtime; },
     close() {
       closing ??= (async () => {
+        const lobbyClosing = activeLobby?.close();
         await new Promise((resolve) => {
           io.close(resolve);
           httpServer.closeIdleConnections();
         });
-        await dependencies?.close();
+        await Promise.all([dependencies?.close(), lobbyClosing]);
       })();
       return closing;
     },
@@ -63,12 +70,26 @@ export async function start() {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,
   });
-  const healthChecker = createHealthChecker(dependencies);
+  const database = createDatabase({ databaseUrl: process.env.DATABASE_URL, maxPlayers: Number(process.env.MAX_PLAYERS || 20) });
+  let lobby;
+  const healthChecker = createHealthChecker({
+    checkPostgres: dependencies.checkPostgres,
+    checkRedis: async () => dependencies.checkRedis() && (!lobby || lobby.isReady()),
+  });
   const server = createRealtimeServer({
     healthChecker,
     dependencies,
     webOrigin: process.env.WEB_ORIGIN,
   });
+  lobby = createLobbyRuntime({
+    io: server.io,
+    database,
+    redisUrl: process.env.REDIS_URL,
+    maxPlayers: Number(process.env.MAX_PLAYERS || 20),
+    ttlSeconds: Number(process.env.LOBBY_TTL_SECONDS || 21600),
+  });
+  server.setLobby(lobby);
+  await lobby.connect();
   try {
     await new Promise((resolve, reject) => {
       server.httpServer.once("error", reject);
@@ -93,6 +114,7 @@ export async function start() {
     deadline.unref();
     try {
       await server.close();
+      await database.close();
     } catch {
       console.error("[realtime] Falha no encerramento");
       process.exitCode = 1;

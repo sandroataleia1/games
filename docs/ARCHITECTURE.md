@@ -3,11 +3,11 @@
 ## Responsabilidades
 
 - `apps/web`: Next.js App Router JavaScript. Interface inicial e futuras APIs administrativas; **não mantém salas em memória** nem importa Prisma.
-- `apps/realtime`: Express/Socket.IO. Continua somente com ping/pong e health check. Futuramente será autoritativo para partidas e pontuação.
+- `apps/realtime`: Express/Socket.IO. Autoritativo para salas, participantes e presença do lobby; partidas e pontuação continuam adiadas.
 - `packages/contracts`: constantes dos eventos, enums de domínio, schemas Zod de perguntas e snapshot v1.
 - `packages/database`: Prisma, migrations, seed, repositories específicos e serviços transacionais. Único ponto de acesso persistente.
 - PostgreSQL 16: catálogo, sessões, participantes, respostas e snapshots históricos permanentes.
-- Redis 7: integração e saúde já disponíveis; estado efêmero de partidas, adapter e coordenação entre instâncias continuam adiados.
+- Redis 7: projeção efêmera do lobby, presença, rate limits, adapter Socket.IO e coordenação entre instâncias.
 
 ## Persistência
 
@@ -27,8 +27,8 @@ Veja [modelo de dados](DATA-MODEL.md) e [ADR-002](ADR-002-persistencia-e-snapsho
 
 O indicador da web confirma comunicação Socket.IO/ping-pong, não substitui o health check.
 
-## Evolução adiada
+## Lobby e evolução adiada
 
-Redis permitirá coordenação entre instâncias futuramente; ainda não há adapter nem sincronização distribuída. A queda de um cliente não poderá invalidar toda a partida. Eventos receberão versão ao evoluírem; snapshots já possuem schemaVersion 1.
+O lobby usa eventos versionados, Redis Adapter e hidratação a partir do PostgreSQL quando uma projeção expira. O cliente recebe apenas DTOs públicos; tokens e gabaritos permanecem no servidor. A queda de um cliente marca sua presença como desconectada sem excluir imediatamente o participante. A aba fechada perde a credencial anônima mantida em `sessionStorage`.
 
-O incremento atual não gera código de sala ou token, não inicia sessões por interface, não processa cronômetros e não calcula pontuação realtime.
+O incremento atual não inicia sessões por interface, não processa perguntas, cronômetros, respostas ou pontuação realtime.

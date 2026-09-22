@@ -1,6 +1,6 @@
 # QuizArena
 
-Fundação de um quiz multiplayer: tela principal na TV e celulares como controles. Este incremento contém apenas interface inicial, conexão Socket.IO, ping/pong validado e saúde de Redis/PostgreSQL. Criar e entrar em partidas permanecem desabilitados.
+Fundação de um quiz multiplayer: tela principal na TV e celulares como controles. O lobby v1 permite escolher quiz publicado, criar sala, entrar com código e nome, acompanhar participantes e reassumir uma identidade anônima.
 
 ## Pré-requisitos
 
@@ -39,6 +39,7 @@ O projeto usa exclusivamente pnpm workspaces e `pnpm-lock.yaml`. O lockfile npm 
 | `apps/realtime/.env` | `WEB_ORIGIN`                  | `http://localhost:3000`                                           |
 | `apps/realtime/.env` | `REDIS_URL`                   | `redis://localhost:6379`                                          |
 | `apps/realtime/.env` | `DATABASE_URL`                | `postgresql://onlinegames:onlinegames@127.0.0.1:5432/onlinegames` |
+| `apps/realtime/.env` | `MAX_PLAYERS` / `LOBBY_TTL_SECONDS` | `20` / `21600` |
 | `.env` da raiz       | `POSTGRES_PORT`, `REDIS_PORT` | `5432`, `6379`                                                    |
 
 O Compose lê explicitamente o `.env` da raiz; cada aplicativo lê seu próprio `.env`. O arquivo da raiz não configura automaticamente os aplicativos. Reinicie o Next.js após alterar variáveis públicas e refaça o build de produção.

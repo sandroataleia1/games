@@ -4,7 +4,7 @@ import { transaction } from "../repositories/transaction.js";
 import { sessionRepository } from "../repositories/sessions.js";
 import { quizRepository } from "../repositories/quizzes.js";
 import { requireQuiz } from "./quizzes.js";
-import { hashToken } from "./tokens.js";
+import { hashToken, verifyToken } from "./tokens.js";
 import {
   validateSnapshot,
   sessionDTO,
@@ -17,7 +17,7 @@ const roomCodeSchema = z
   .trim()
   .toUpperCase()
   .regex(/^[A-Z0-9]{4,12}$/);
-const displayNameSchema = z.string().normalize("NFKC").trim().min(1).max(40);
+const displayNameSchema = z.string().normalize("NFKC").trim().min(2).max(24).refine((value) => !Array.from(value).some((character) => { const code = character.codePointAt(0); return code <= 31 || (code >= 127 && code <= 159); }), "INVALID_NAME");
 const createSessionSchema = z
   .object({
     roomCode: z.unknown(),
@@ -48,7 +48,7 @@ async function requireSession(repo, id) {
   if (!session) throw new DomainError("SESSION_NOT_FOUND");
   return session;
 }
-export function createSessionService(client) {
+export function createSessionService(client, { maxPlayers = 20 } = {}) {
   return {
     async create(input) {
       const { roomCode, snapshot, hostToken } = parse(
@@ -98,6 +98,7 @@ export function createSessionService(client) {
         displayName,
         "PARTICIPANT_INVALID",
       ).replace(/\s+/gu, " ");
+      if (name.length < 2) throw new DomainError("PARTICIPANT_INVALID");
       const reconnectTokenHash = await hashToken(reconnectToken);
       return transaction(
         client,
@@ -106,6 +107,8 @@ export function createSessionService(client) {
           const session = await requireSession(repo, gameSessionId);
           if (session.status !== "WAITING")
             throw new DomainError("SESSION_NOT_WAITING");
+          if (await repo.countParticipants(gameSessionId) >= maxPlayers)
+            throw new DomainError("ROOM_FULL");
           return participantDTO(
             await repo.addParticipant({
               gameSessionId,
@@ -117,6 +120,36 @@ export function createSessionService(client) {
         },
         "PARTICIPANT_NAME_CONFLICT",
       );
+    },
+    async resumeParticipant({ gameSessionId, participantId, reconnectToken }) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        await requireSession(repo, gameSessionId);
+        const participant = await repo.participant(participantId, gameSessionId);
+        if (!participant || !(await verifyToken(reconnectToken, participant.reconnectTokenHash)))
+          throw new DomainError("INVALID_RECONNECT_TOKEN");
+        return participantDTO(await repo.updatePresence(participantId, gameSessionId, true));
+      });
+    },
+    async resumeHost({ gameSessionId, hostToken }) {
+      const session = await requireSession(sessionRepository(client), gameSessionId);
+      if (!(await verifyToken(hostToken, session.hostTokenHash)))
+        throw new DomainError("INVALID_HOST_TOKEN");
+      return sessionDTO(session);
+    },
+    async disconnectParticipant(gameSessionId, participantId) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        await requireSession(repo, gameSessionId);
+        return participantDTO(await repo.updatePresence(participantId, gameSessionId, false));
+      });
+    },
+    async leaveParticipant(gameSessionId, participantId) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        await requireSession(repo, gameSessionId);
+        return participantDTO(await repo.markLeft(participantId, gameSessionId));
+      });
     },
     async registerAnswer(input) {
       const decision = parse(decisionSchema, input, "ANSWER_INVALID");

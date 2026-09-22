@@ -1,5 +1,9 @@
 # Modelo persistente do QuizArena
 
+## Projeções do lobby
+
+PostgreSQL guarda a confirmação de `GameSession`, o snapshot histórico e `Participant`, incluindo somente hashes de tokens. Redis usa o prefixo `quizarena:lobby:` para `room:<ROOM_CODE>` (DTO público), `presence:<ROOM_CODE>:<PARTICIPANT_ID>` (presença efêmera) e `rate:<KIND>:<IDENTITY>` (janelas atômicas). A projeção e a presença usam `LOBBY_TTL_SECONDS`; rate limits usam TTL próprio. Redis não é fonte permanente e a projeção é reconstruída do PostgreSQL.
+
 ## Tabelas e relacionamentos
 
 | Entidade       | Responsabilidade                                           | Integridade e índices                                                                                                         |

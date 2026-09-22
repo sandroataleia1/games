@@ -1,10 +1,7 @@
 import { z } from "zod";
 export * from "./domain.js";
+export * from "./lobby.js";
 
-export const EVENTS = Object.freeze({
-  SYSTEM_PING: "system:ping",
-  SYSTEM_PONG: "system:pong",
-});
 const timestamp = z.string().datetime({ offset: true });
 export const systemPingSchema = z
   .object({

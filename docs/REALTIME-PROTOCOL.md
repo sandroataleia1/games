@@ -1,0 +1,20 @@
+# Protocolo realtime v1
+
+Todos os comandos usam ACK `{ ok: true, data }` ou `{ ok: false, error: { code, message } }`. Os payloads são schemas Zod estritos em `packages/contracts`.
+
+| Evento | Origem | Finalidade | Proteção |
+| --- | --- | --- | --- |
+| `v1:quiz:list` | cliente | listar quizzes publicados | somente resumo |
+| `v1:room:create` | organizador | criar sala | quiz publicado, rate limit |
+| `v1:room:join` | jogador | entrar com nome | transação, unicidade, limite |
+| `v1:room:resume` | jogador | reassumir identidade | hash do token |
+| `v1:host:resume` | organizador | reassumir sala | hash do token |
+| `v1:room:leave` | jogador | sair voluntariamente | identidade do socket |
+| `v1:room:state` | servidor | estado público | DTO sem dados privados |
+| `v1:room:participant-joined` | servidor | anunciar entrada | DTO público |
+| `v1:room:participant-updated` | servidor | anunciar reconexão | DTO público |
+| `v1:room:participant-left` | servidor | anunciar saída | apenas id |
+
+Erros estáveis: `INVALID_PAYLOAD`, `QUIZ_NOT_FOUND`, `QUIZ_NOT_PUBLISHED`, `ROOM_NOT_FOUND`, `ROOM_NOT_WAITING`, `ROOM_FULL`, `ROOM_CODE_CONFLICT`, `NAME_CONFLICT`, `INVALID_HOST_TOKEN`, `INVALID_RECONNECT_TOKEN`, `RATE_LIMITED`, `DEPENDENCY_UNAVAILABLE` e `INTERNAL_ERROR`.
+
+O Redis Adapter usa publisher e subscriber separados, permitindo que host e jogador estejam em instâncias diferentes. PostgreSQL permanece a fonte permanente e a queda do Redis bloqueia comandos do lobby.
