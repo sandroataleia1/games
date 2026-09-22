@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { calculatePoints } from "../src/services/scoring.js";
+import { calculatePoints, isResponseWithinDeadline } from "../src/services/scoring.js";
 
 describe("calculatePoints", () => {
   const base = { basePoints: 1000, durationMs: 1000, isCorrect: true };
@@ -23,5 +23,11 @@ describe("calculatePoints", () => {
   test("is deterministic when evaluated repeatedly", () => {
     const input = { ...base, responseTimeMs: 333 };
     expect(calculatePoints(input)).toBe(calculatePoints(input));
+  });
+  test("uses an inclusive deadline", () => {
+    const endsAt = new Date("2026-09-22T00:00:01.000Z");
+    expect(isResponseWithinDeadline(new Date(endsAt.getTime() - 1), endsAt)).toBe(true);
+    expect(isResponseWithinDeadline(new Date(endsAt.getTime()), endsAt)).toBe(true);
+    expect(isResponseWithinDeadline(new Date(endsAt.getTime() + 1), endsAt)).toBe(false);
   });
 });

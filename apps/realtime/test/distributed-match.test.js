@@ -70,6 +70,15 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const instanceB = await instance();
   const host = await client(instanceA.port);
   const player = await client(instanceB.port);
+  const counts = { host: {}, player: {} };
+  function countEvents(label, socket) {
+    for (const event of [EVENTS.GAME_QUESTION, EVENTS.GAME_QUESTION_RESULT, EVENTS.GAME_RANKING, EVENTS.GAME_FINISHED]) {
+      counts[label][event] ??= 0;
+      socket.on(event, () => { counts[label][event] += 1; });
+    }
+  }
+  countEvents("host", host);
+  countEvents("player", player);
   const quiz = (await instanceA.database.quizzes.listByStatus("PUBLISHED"))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   expect(created.ok).toBe(true);
@@ -106,6 +115,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const resumedSocket = player;
   resumedSocket.close();
   const replacement = await client(instanceA.port);
+  countEvents("player", replacement);
   const resumed = await command(replacement, EVENTS.ROOM_RESUME, { roomCode, participantId: joined.data.participantId, reconnectToken: joined.data.reconnectToken });
   expect(resumed.ok).toBe(true);
   expect(resumed.data.match.round).toBe(2);
@@ -122,13 +132,21 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   for (let round = 2; round <= 6; round += 1) {
     const active = await instanceA.database.sessions.getByCode(roomCode);
     if (active.matchPhase === "QUESTION") await instanceA.database.sessions.questionResult(active.id);
-    if (round < 6) await instanceA.database.sessions.nextQuestion(active.id);
-    else await instanceA.database.sessions.nextQuestion(active.id);
+    if (round < 6) await command(host, EVENTS.GAME_NEXT, { roomCode });
+    else await command(host, EVENTS.GAME_NEXT, { roomCode });
   }
   const finished = await instanceA.database.sessions.getByCode(roomCode);
   expect(finished.matchPhase).toBe("FINISHED");
   const afterFinish = await command(replacement, EVENTS.GAME_ANSWER, { roomCode, questionId: secondQuestion.id, optionId: secondQuestion.options[0].id });
   expect(afterFinish.ok).toBe(false);
+  expect(counts.host[EVENTS.GAME_QUESTION]).toBe(6);
+  expect(counts.player[EVENTS.GAME_QUESTION]).toBe(5);
+  expect(counts.host[EVENTS.GAME_QUESTION_RESULT]).toBe(2);
+  expect(counts.player[EVENTS.GAME_QUESTION_RESULT]).toBe(2);
+  expect(counts.host[EVENTS.GAME_RANKING]).toBe(3);
+  expect(counts.player[EVENTS.GAME_RANKING]).toBe(3);
+  expect(counts.host[EVENTS.GAME_FINISHED]).toBe(1);
+  expect(counts.player[EVENTS.GAME_FINISHED]).toBe(1);
 });
 
 test("two database connections reject concurrent start transitions", async () => {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
+import { withLock } from "./distributed-lock.js";
 import { DomainError } from "@quizarena/database";
 import { EVENTS, lobbySchemas, publicLobbyStateSchema } from "@quizarena/contracts";
 
@@ -134,17 +135,20 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!session || session.matchPhase !== "QUESTION") return;
     const round = session.currentQuestionIndex + 1;
     if (session.questionEndsAt && Date.now() < session.questionEndsAt.getTime()) { scheduleQuestion(roomCode, session.questionEndsAt); return; }
-    if (!(await publisher.set(gameLockKey(roomCode, round), "1", { NX: true, PX: 30000 }))) return;
-    const result = await database.sessions.questionResult(session.id);
-    const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
-    const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
-    const sockets = await io.in(roomCode).fetchSockets();
-    for (const socket of sockets) {
-      const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
-      socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
-    }
-    io.to(roomCode).emit(EVENTS.GAME_RANKING, ranking);
-    await publishMatch(roomCode);
+      await withLock(publisher, gameLockKey(roomCode, round), 30000, async () => {
+        const current = await database.sessions.getByCode(roomCode);
+        if (!current || current.matchPhase !== "QUESTION") return;
+        const result = await database.sessions.questionResult(current.id);
+        const ranking = result.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
+        const distribution = result.answers.reduce((counts, answer) => { counts[answer.selectedOptionRef] = (counts[answer.selectedOptionRef] || 0) + 1; return counts; }, {});
+        const sockets = await io.in(roomCode).fetchSockets();
+        for (const socket of sockets) {
+          const own = socket.data.player ? result.answers.find(({ participantId }) => participantId === socket.data.player.participantId) : null;
+          socket.emit(EVENTS.GAME_QUESTION_RESULT, { round, correctOptionId: result.question.correctOptionId, distribution, ownResult: own ? { isCorrect: own.isCorrect, pointsAwarded: own.pointsAwarded, responseTimeMs: own.responseTimeMs } : null, ranking });
+        }
+        io.to(roomCode).emit(EVENTS.GAME_RANKING, ranking);
+        await publishMatch(roomCode);
+      });
   }
   function scheduleQuestion(roomCode, endsAt) {
     const previous = timers.get(roomCode);

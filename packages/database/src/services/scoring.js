@@ -4,3 +4,7 @@ export function calculatePoints({ basePoints, responseTimeMs, durationMs, isCorr
   const speedBonus = Math.floor(basePoints * (1 - elapsedRatio) * 0.5);
   return basePoints + speedBonus;
 }
+
+export function isResponseWithinDeadline(receivedAt, endsAt) {
+  return receivedAt.getTime() <= endsAt.getTime();
+}

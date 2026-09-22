@@ -5,7 +5,7 @@ import { sessionRepository } from "../repositories/sessions.js";
 import { quizRepository } from "../repositories/quizzes.js";
 import { requireQuiz } from "./quizzes.js";
 import { hashToken, verifyToken } from "./tokens.js";
-import { calculatePoints } from "./scoring.js";
+import { calculatePoints, isResponseWithinDeadline } from "./scoring.js";
 import {
   validateSnapshot,
   sessionDTO,
@@ -72,7 +72,7 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
         const session = await requireSession(repo, parsed.gameSessionId);
         if (session.matchPhase !== "QUESTION" || session.status !== "ACTIVE") throw new DomainError("INVALID_STATE");
         const now = new Date();
-        if (!session.questionEndsAt || now > session.questionEndsAt) throw new DomainError("QUESTION_EXPIRED");
+        if (!session.questionEndsAt || !isResponseWithinDeadline(now, session.questionEndsAt)) throw new DomainError("QUESTION_EXPIRED");
         const participant = await repo.participant(parsed.participantId, parsed.gameSessionId);
         if (!participant || participant.disconnectedAt) throw new DomainError("PARTICIPANT_NOT_ACTIVE");
         const snapshot = validateSnapshot(session.quizSnapshot);
