@@ -43,7 +43,7 @@ export default function QuizGame() {
         <section className={styles.board} aria-labelledby="quiz-title">
           <header className={styles.header}>
             <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena</span></div>
-            <Link href="/">Início</Link>
+            <nav className={styles.navLinks}><Link href="/">Início</Link></nav>
           </header>
           <div className={styles.intro}>
             <span className={styles.eyebrow}>Jogo</span>

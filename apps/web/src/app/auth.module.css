@@ -1,1 +1,143 @@
-.shell{min-height:100svh;display:grid;place-items:center;padding:24px}.card{width:min(100%,480px);background:#201a32;border:1px solid var(--line);border-radius:24px;padding:32px}.card h1{margin:12px 0 8px;font-size:clamp(32px,7vw,48px)}.card p{color:var(--muted);line-height:1.5}.form{display:grid;gap:14px;margin-top:24px}.field{display:grid;gap:7px}.field label{font-size:13px;color:var(--muted)}.field input,.field textarea,.field select{width:100%;min-height:48px;padding:11px 13px;color:var(--ink);background:#171222;border:1px solid #807291;border-radius:10px}.button{min-height:48px;padding:10px 16px;border:0;border-radius:10px;background:#c5f16b;color:#202819;font-weight:800}.button:disabled{opacity:.55}.error{color:#ffb1b1}.link{color:#c7b2ff}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.brand{font-weight:800;color:#c5f16b}.actions{display:flex;gap:10px;flex-wrap:wrap}.linkButton{border:0;background:none;color:#c7b2ff;padding:0;text-decoration:underline;cursor:pointer}.dialogBackdrop{position:fixed;inset:0;background:#000a;display:grid;place-items:center;padding:24px;z-index:10}.dialog{width:min(100%,460px);background:#201a32;border:1px solid var(--line);border-radius:18px;padding:24px}.dialog h2{margin-top:0}
+@keyframes cardIn {
+  from { opacity: 0; transform: translateY(18px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.shell {
+  min-height: 100svh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.card {
+  width: min(100%, 480px);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 88%, transparent), color-mix(in srgb, var(--panel-2) 82%, transparent));
+  backdrop-filter: blur(18px) saturate(140%);
+  border: 1px solid color-mix(in srgb, var(--violet) 22%, var(--line));
+  border-radius: 24px;
+  padding: 32px;
+  box-shadow: 0 30px 80px -30px #000a, 0 0 0 1px #ffffff08 inset;
+  animation: cardIn 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+.card h1 {
+  margin: 12px 0 8px;
+  font-size: clamp(30px, 6.5vw, 44px);
+}
+.card p {
+  color: var(--muted);
+  line-height: 1.55;
+}
+.form {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+.field {
+  display: grid;
+  gap: 7px;
+}
+.field label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  min-height: 48px;
+  padding: 11px 13px;
+  color: var(--ink);
+  background: #171222;
+  border: 1px solid #4a3f66;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.field input:focus-visible,
+.field textarea:focus-visible,
+.field select:focus-visible {
+  border-color: var(--lime);
+}
+.button {
+  min-height: 50px;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, var(--lime), color-mix(in srgb, var(--lime) 70%, var(--cyan)));
+  color: #16221a;
+  font-weight: 800;
+  box-shadow: 0 5px 0 #6f9a2f, 0 12px 24px -8px color-mix(in srgb, var(--lime) 55%, transparent);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.06);
+}
+.button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.button:disabled {
+  opacity: 0.55;
+  box-shadow: none;
+  transform: none;
+}
+.error {
+  color: var(--pink);
+  min-height: 1em;
+}
+.link {
+  color: var(--violet);
+  font-weight: 600;
+}
+.link:hover {
+  color: var(--lime);
+}
+.top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+}
+.brand {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--lime), var(--cyan) 55%, var(--violet));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.linkButton {
+  border: 0;
+  background: none;
+  color: var(--violet);
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+  font-weight: 600;
+}
+.linkButton:hover {
+  color: var(--lime);
+}
+.dialogBackdrop {
+  position: fixed;
+  inset: 0;
+  background: #000a;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 10;
+}
+.dialog {
+  width: min(100%, 460px);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 24px;
+}
+.dialog h2 {
+  margin-top: 0;
+}

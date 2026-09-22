@@ -77,7 +77,7 @@ export default function QuizRooms() {
       <section className={styles.board} aria-labelledby="quiz-title">
         <header className={styles.header}>
           <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena / Quiz</span></div>
-          <Link href="/jogos/quiz">← Quizzes</Link>
+          <nav className={styles.navLinks}><Link href="/jogos/quiz">← Quizzes</Link></nav>
         </header>
         <div className={styles.intro} style={{ padding: "30px 0" }}>
           <h1 id="quiz-title">{quiz?.title || "Carregando..."}</h1>
