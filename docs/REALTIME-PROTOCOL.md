@@ -18,3 +18,9 @@ Todos os comandos usam ACK `{ ok: true, data }` ou `{ ok: false, error: { code, 
 Erros estáveis: `INVALID_PAYLOAD`, `QUIZ_NOT_FOUND`, `QUIZ_NOT_PUBLISHED`, `ROOM_NOT_FOUND`, `ROOM_NOT_WAITING`, `ROOM_FULL`, `ROOM_CODE_CONFLICT`, `NAME_CONFLICT`, `INVALID_HOST_TOKEN`, `INVALID_RECONNECT_TOKEN`, `RATE_LIMITED`, `DEPENDENCY_UNAVAILABLE` e `INTERNAL_ERROR`.
 
 O Redis Adapter usa publisher e subscriber separados, permitindo que host e jogador estejam em instâncias diferentes. PostgreSQL permanece a fonte permanente e a queda do Redis bloqueia comandos do lobby.
+
+## Partida e pontuação
+
+`v1:game:start` inicia a primeira pergunta apenas para o host autenticado. `v1:game:answer` aceita somente o identificador estável da alternativa; o servidor registra `answeredAt`, calcula `responseTimeMs` e rejeita prazo expirado ou duplicidade. A pontuação é `0` para erro/ausência e, para acerto, `basePoints + floor(basePoints * (1 - responseTimeMs / durationMs) * 0.5)`, limitada naturalmente a no máximo `1.5 * basePoints`. O desempate público usa score, depois ordem de entrada/ID.
+
+As transições persistidas são `LOBBY -> QUESTION -> QUESTION_RESULT -> QUESTION` ou `FINISHED`. O timer usa `questionEndsAt` persistido e um lock Redis por sala/rodada; ao reiniciar, instâncias rearmam perguntas `QUESTION` existentes no PostgreSQL.

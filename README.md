@@ -55,7 +55,7 @@ Nesta máquina, os arquivos locais usam **PostgreSQL 55433** e **Redis 56379** p
 
 Web: http://localhost:3000. Realtime: http://localhost:3001. Saúde: http://localhost:3001/health.
 
-O indicador mostra “Servidor conectado” após um ping/pong válido. Redis/PostgreSQL são monitorados separadamente no endpoint de saúde; falhas retornam 503 e não derrubam o processo. O código da sala aceita digitação, mas os botões ficam desabilitados.
+O indicador mostra “Servidor conectado” após um ping/pong válido. O ciclo v1 inclui início pelo host, pergunta autoritativa, resposta única, prazo, resultado, avanço e ranking final. Redis/PostgreSQL são monitorados no endpoint de saúde; falhas de coordenação bloqueiam comandos da partida.
 
 ## Validação
 

@@ -24,6 +24,13 @@ enum GameSessionStatus {
   CANCELLED
 }
 
+enum MatchPhase {
+  LOBBY
+  QUESTION
+  QUESTION_RESULT
+  FINISHED
+}
+
 model Quiz {
   id          String     @id @default(uuid()) @db.Uuid
   title       String
@@ -74,6 +81,10 @@ model GameSession {
   roomCode      String @unique
   quizId        String @db.Uuid
   status        GameSessionStatus @default(WAITING)
+  matchPhase    MatchPhase @default(LOBBY)
+  currentQuestionIndex Int?
+  questionStartedAt DateTime? @db.Timestamptz(3)
+  questionEndsAt DateTime? @db.Timestamptz(3)
   hostTokenHash String
   quizSnapshot  Json @db.JsonB
   createdAt     DateTime @default(now()) @db.Timestamptz(3)

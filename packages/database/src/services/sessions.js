@@ -43,6 +43,7 @@ const decisionSchema = z
     pointsAwarded: z.number().int().min(0).max(2147483647),
   })
   .strict();
+const matchAnswerSchema = z.object({ gameSessionId: idSchema, participantId: idSchema, questionRef: idSchema, selectedOptionRef: idSchema }).strict();
 async function requireSession(repo, id) {
   const session = await repo.get(parse(idSchema, id, "SESSION_INVALID"));
   if (!session) throw new DomainError("SESSION_NOT_FOUND");
@@ -50,6 +51,78 @@ async function requireSession(repo, id) {
 }
 export function createSessionService(client, { maxPlayers = 20 } = {}) {
   return {
+    async startMatch(id) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, id);
+        if (session.matchPhase !== "LOBBY") throw new DomainError("INVALID_STATE");
+        if (!(await repo.activeParticipants(id))) throw new DomainError("NO_PARTICIPANTS");
+        const snapshot = validateSnapshot(session.quizSnapshot);
+        if (!snapshot.questions.length) throw new DomainError("NO_QUESTIONS");
+        const now = new Date();
+        const endsAt = new Date(now.getTime() + snapshot.questions[0].durationSeconds * 1000);
+        return sessionDTO(await repo.startMatch(id, { currentQuestionIndex: 0, questionStartedAt: now, questionEndsAt: endsAt }));
+      });
+    },
+    async answer(input) {
+      const parsed = parse(matchAnswerSchema, input, "INVALID_ANSWER");
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, parsed.gameSessionId);
+        if (session.matchPhase !== "QUESTION" || session.status !== "ACTIVE") throw new DomainError("INVALID_STATE");
+        const now = new Date();
+        if (!session.questionEndsAt || now > session.questionEndsAt) throw new DomainError("QUESTION_EXPIRED");
+        const participant = await repo.participant(parsed.participantId, parsed.gameSessionId);
+        if (!participant || participant.disconnectedAt) throw new DomainError("PARTICIPANT_NOT_ACTIVE");
+        const snapshot = validateSnapshot(session.quizSnapshot);
+        const question = snapshot.questions[session.currentQuestionIndex];
+        if (!question || question.id !== parsed.questionRef) throw new DomainError("INVALID_ANSWER");
+        const option = question.options.find((candidate) => candidate.id === parsed.selectedOptionRef);
+        if (!option) throw new DomainError("INVALID_ANSWER");
+        const existing = await repo.answersForQuestion(parsed.gameSessionId, parsed.questionRef);
+        if (existing.some((answer) => answer.participantId === parsed.participantId)) throw new DomainError("ANSWER_ALREADY_SUBMITTED");
+        const responseTimeMs = Math.max(0, now.getTime() - session.questionStartedAt.getTime());
+        const speedBonus = option.isCorrect ? Math.max(0, Math.floor(question.basePoints * (1 - responseTimeMs / (question.durationSeconds * 1000)) * 0.5)) : 0;
+        const pointsAwarded = option.isCorrect ? question.basePoints + speedBonus : 0;
+        await repo.answer({ gameSessionId: parsed.gameSessionId, participantId: parsed.participantId, questionRef: parsed.questionRef, selectedOptionRef: parsed.selectedOptionRef, isCorrect: option.isCorrect, responseTimeMs, pointsAwarded });
+        await tx.participant.update({ where: { id_gameSessionId: { id: parsed.participantId, gameSessionId: parsed.gameSessionId } }, data: { score: { increment: pointsAwarded }, lastSeenAt: now } });
+        return { answeredAt: now, isCorrect: option.isCorrect, pointsAwarded, responseTimeMs };
+      }, "ANSWER_ALREADY_SUBMITTED");
+    },
+    async questionResult(id) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, id);
+        if (session.matchPhase !== "QUESTION") throw new DomainError("INVALID_STATE");
+        const snapshot = validateSnapshot(session.quizSnapshot);
+        const question = snapshot.questions[session.currentQuestionIndex];
+        const answers = await repo.answersForQuestion(id, question.id);
+        const updated = await repo.setQuestionResult(id);
+        return { session: sessionDTO(updated), question: { id: question.id, correctOptionId: question.options.find((option) => option.isCorrect).id, round: session.currentQuestionIndex + 1 }, answers, ranking: await repo.ranking(id) };
+      });
+    },
+    async nextQuestion(id) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, id);
+        if (session.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
+        const snapshot = validateSnapshot(session.quizSnapshot);
+        const nextIndex = session.currentQuestionIndex + 1;
+        if (nextIndex >= snapshot.questions.length) return { finished: true, session: sessionDTO(await repo.finishMatch(id)), ranking: await repo.ranking(id) };
+        const now = new Date();
+        const endsAt = new Date(now.getTime() + snapshot.questions[nextIndex].durationSeconds * 1000);
+        return { finished: false, session: sessionDTO(await repo.setNextQuestion(id, { currentQuestionIndex: nextIndex, questionStartedAt: now, questionEndsAt: endsAt })) };
+      });
+    },
+    async currentQuestion(id) {
+      const session = await requireSession(sessionRepository(client), id);
+      const snapshot = validateSnapshot(session.quizSnapshot);
+      const question = session.currentQuestionIndex == null ? null : snapshot.questions[session.currentQuestionIndex];
+      return { session, question, answers: question ? await sessionRepository(client).answersForQuestion(id, question.id) : [] };
+    },
+    async activeMatches() {
+      return (await sessionRepository(client).activeMatches()).map(sessionDTO);
+    },
     async create(input) {
       const { roomCode, snapshot, hostToken } = parse(
         createSessionSchema,

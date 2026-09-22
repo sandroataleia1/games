@@ -4,7 +4,9 @@ export function sessionRepository(db) {
     create: (data) => db.gameSession.create({ data }),
     get: (id) => db.gameSession.findUnique({ where: { id }, include }),
     byCode: (roomCode) => db.gameSession.findUnique({ where: { roomCode }, include }),
+    activeMatches: () => db.gameSession.findMany({ where: { status: "ACTIVE", matchPhase: "QUESTION" }, include }),
     countParticipants: (gameSessionId) => db.participant.count({ where: { gameSessionId } }),
+    activeParticipants: (gameSessionId) => db.participant.count({ where: { gameSessionId, disconnectedAt: null } }),
     addParticipant: (data) => db.participant.create({ data }),
     participant: (id, gameSessionId) =>
       db.participant.findUnique({
@@ -20,6 +22,13 @@ export function sessionRepository(db) {
         where: { id_gameSessionId: { id, gameSessionId } },
         data: { lastSeenAt: new Date(), disconnectedAt: new Date() },
       }),
+    startMatch: (id, data) => db.gameSession.update({ where: { id }, data: { status: "ACTIVE", matchPhase: "QUESTION", ...data }, include }),
+    setQuestionResult: (id) => db.gameSession.update({ where: { id }, data: { matchPhase: "QUESTION_RESULT" }, include }),
+    setNextQuestion: (id, data) => db.gameSession.update({ where: { id }, data: { matchPhase: "QUESTION", ...data }, include }),
+    finishMatch: (id) => db.gameSession.update({ where: { id }, data: { status: "FINISHED", matchPhase: "FINISHED", finishedAt: new Date(), questionStartedAt: null, questionEndsAt: null }, include }),
+    answer: (data) => db.answer.create({ data }),
+    answersForQuestion: (gameSessionId, questionRef) => db.answer.findMany({ where: { gameSessionId, questionRef }, orderBy: [{ answeredAt: "asc" }, { participantId: "asc" }] }),
+    ranking: (gameSessionId) => db.participant.findMany({ where: { gameSessionId }, orderBy: [{ score: "desc" }, { joinedAt: "asc" }, { id: "asc" }] }),
     addAnswer: (data) => db.answer.create({ data }),
     finish: (id) =>
       db.gameSession.update({

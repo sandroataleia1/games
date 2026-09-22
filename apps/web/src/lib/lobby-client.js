@@ -14,7 +14,7 @@ export function saveSession(key, value) {
   window.sessionStorage.setItem(key, value);
 }
 
-export function createLobbyClient({ onStatusChange, onStateChange } = {}) {
+export function createLobbyClient({ onStatusChange, onStateChange, onQuestionResult, onFinished } = {}) {
   const socket = io(process.env.NEXT_PUBLIC_REALTIME_URL, { autoConnect: false, reconnection: true });
   const update = (status) => onStatusChange?.(status);
   socket.on("connect", () => {
@@ -29,6 +29,9 @@ export function createLobbyClient({ onStatusChange, onStateChange } = {}) {
   socket.on("connect_error", () => update("unavailable"));
   socket.io.on("reconnect_attempt", () => update("reconnecting"));
   if (onStateChange) socket.on(EVENTS.ROOM_STATE, onStateChange);
+  if (onStateChange) socket.on(EVENTS.GAME_STATE, onStateChange);
+  if (onQuestionResult) socket.on(EVENTS.GAME_QUESTION_RESULT, onQuestionResult);
+  if (onFinished) socket.on(EVENTS.GAME_FINISHED, onFinished);
   socket.connect();
   return {
     command(event, payload = {}) {
