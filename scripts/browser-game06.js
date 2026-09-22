@@ -116,7 +116,7 @@ try {
   await guestPage.getByLabel("Senha", { exact: true }).fill(guestPassword);
   await guestPage.getByLabel("Confirmar senha").fill(guestPassword);
   await guestPage.getByRole("button", { name: "Criar conta" }).click();
-  await guestPage.waitForURL("**/painel");
+  await guestPage.waitForURL("**/jogos/quiz");
   await guestPage.goto(base + `/jogos/quiz/quizzes/${quizId}`);
   await guestPage.getByText(multiRoomCode).waitFor();
   const privateVisible = await guestPage.getByText(privateRoomCode).count();

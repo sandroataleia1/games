@@ -145,6 +145,28 @@ test("host jogador que reconecta em outro socket não perde a participação e a
   expect(started.ok).toBe(true);
 });
 
+test("host recupera os controles da sala em uma aba nova sem o token salvo, só com a conta", async () => {
+  const { database, port } = await instance();
+  const host = await account(database, "HostSemToken");
+  const outsider = await account(database, "ContaEstranha");
+  const quiz = await onePublishedQuiz(database, host.user.id);
+  const firstSocket = await connect(port, host.token);
+  const created = await command(firstSocket, EVENTS.ROOM_CREATE, { quizId: quiz.id, visibility: "PRIVATE" });
+  expect(created.ok).toBe(true);
+  roomIds.push(created.data.roomCode);
+  firstSocket.close();
+  await new Promise((resolve) => setTimeout(resolve, 300));
+
+  const freshTabSocket = await connect(port, host.token);
+  const resumedWithoutToken = await command(freshTabSocket, EVENTS.HOST_RESUME, { roomCode: created.data.roomCode });
+  expect(resumedWithoutToken.ok).toBe(true);
+
+  const outsiderSocket = await connect(port, outsider.token);
+  const rejected = await command(outsiderSocket, EVENTS.HOST_RESUME, { roomCode: created.data.roomCode });
+  expect(rejected.ok).toBe(false);
+  expect(rejected.error.code).toBe("INVALID_HOST_TOKEN");
+});
+
 test("host que escolhe somente organizar não vira jogador e não pode iniciar sozinho", async () => {
   const { database, port } = await instance();
   const host = await account(database, "SomenteOrganizar");

@@ -241,7 +241,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
     const session = await database.sessions.getByCode(parsed.data.roomCode);
     if (!session) throw new DomainError("SESSION_NOT_FOUND");
-    await database.sessions.resumeHost({ gameSessionId: session.id, hostToken: parsed.data.hostToken });
+    await database.sessions.resumeHost({ gameSessionId: session.id, hostToken: parsed.data.hostToken, accountId: socket.data.organizer.id });
     await socket.join(session.roomCode);
     socket.data.hostRoomCode = session.roomCode;
     socket.data.host = true;

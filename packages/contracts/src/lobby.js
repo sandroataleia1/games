@@ -12,7 +12,7 @@ export const lobbySchemas = Object.freeze({
   roomCreate: z.object({ quizId: z.uuid(), visibility: roomVisibility.default("PUBLIC"), hostPlays: z.boolean().default(false) }).strict(),
   roomJoin: z.object({ roomCode, displayName: playerName.optional() }).strict(),
   roomResume: z.object({ roomCode, participantId: z.uuid(), reconnectToken: token }).strict(),
-  hostResume: z.object({ roomCode, hostToken: token }).strict(),
+  hostResume: z.object({ roomCode, hostToken: token.optional() }).strict(),
   roomLeave: z.object({ roomCode }).strict(),
   roomList: z.object({ quizId: z.uuid() }).strict(),
   roomWatch: z.object({ quizId: z.uuid() }).strict(),

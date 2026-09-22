@@ -242,11 +242,12 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
         return participantDTO(await repo.updatePresence(participantId, gameSessionId, true));
       });
     },
-    async resumeHost({ gameSessionId, hostToken }) {
+    async resumeHost({ gameSessionId, hostToken, accountId }) {
       const session = await requireSession(sessionRepository(client), gameSessionId);
-      if (!(await verifyToken(hostToken, session.hostTokenHash)))
-        throw new DomainError("INVALID_HOST_TOKEN");
-      return sessionDTO(session);
+      if (accountId && session.hostUserId === accountId) return sessionDTO(session);
+      if (hostToken && (await verifyToken(hostToken, session.hostTokenHash)))
+        return sessionDTO(session);
+      throw new DomainError("INVALID_HOST_TOKEN");
     },
     async disconnectParticipant(gameSessionId, participantId) {
       return transaction(client, async (tx) => {

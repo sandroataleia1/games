@@ -24,11 +24,10 @@ export default function HostMatch() {
       onStatusChange: async (next) => {
         setStatus(next);
         if (next !== "connected") return;
-        const hostToken = sessionValue(storageKeys.host(roomCode));
-        if (!hostToken) { setError("A credencial desta sala não está disponível neste navegador."); return; }
-        const response = await client.command(EVENTS.HOST_RESUME, { roomCode, hostToken });
+        const hostToken = sessionValue(storageKeys.host(roomCode)) || undefined;
+        const response = await client.command(EVENTS.HOST_RESUME, { roomCode, ...(hostToken ? { hostToken } : {}) });
         if (response?.ok) { setState(response.data.state); setMatch(response.data.match); setPlaying(Boolean(response.data.playing)); }
-        else setError(response?.error?.message || "Não foi possível reassumir a sala.");
+        else setError(response?.error?.message || "Não foi possível reassumir a sala. Você precisa estar logado com a conta que criou esta sala.");
       },
       onStateChange: (next) => { if (next?.phase) setMatch(next); else setState(next); },
       onQuestionResult: (next) => { setResult(next); setRanking(next.ranking); setMatch((current) => current ? { ...current, phase: "QUESTION_RESULT", question: null } : current); },
