@@ -45,6 +45,7 @@ test("host starts a question and player answer is evaluated by the server", asyn
   expect(joined.ok).toBe(true);
   const forbidden = await command(player, EVENTS.GAME_START, { roomCode });
   expect(forbidden.error.code).toBe("UNAUTHORIZED");
+  expect(forbidden.error.message).not.toBe("Não foi possível concluir a operação.");
   const started = await command(host, EVENTS.GAME_START, { roomCode });
   expect(started.ok).toBe(true);
   expect(started.data.match.phase).toBe("QUESTION");

@@ -15,6 +15,7 @@ export default function RoomLobby() {
   const [user, setUser] = useState(null);
   const [checked, setChecked] = useState(false);
   const [status, setStatus] = useState("connecting");
+  const [ready, setReady] = useState(false);
   const [state, setState] = useState(null);
   const [match, setMatch] = useState(null);
   const [selected, setSelected] = useState("");
@@ -36,9 +37,10 @@ export default function RoomLobby() {
     const client = createLobbyClient({
       onStatusChange: async (next) => {
         setStatus(next);
+        setReady(false);
         if (next !== "connected") return;
         const response = await client.command(EVENTS.ROOM_JOIN, { roomCode });
-        if (response?.ok) { setState(response.data.state); setMatch(response.data.match); }
+        if (response?.ok) { setState(response.data.state); setMatch(response.data.match); setReady(true); }
         else setError(response?.error?.message || "Não foi possível entrar na sala.");
       },
       onStateChange: (next) => { if (next?.phase) setMatch(next); else setState(next); },
@@ -57,7 +59,7 @@ export default function RoomLobby() {
   }, [match?.question?.id]);
 
   async function answer(optionId) {
-    if (!match?.question || selected) return;
+    if (!ready || !match?.question || selected) return;
     setSelected(optionId);
     const response = await clientRef.current.command(EVENTS.GAME_ANSWER, { roomCode, questionId: match.question.id, optionId });
     if (!response?.ok) { setSelected(""); setError(response?.error?.message || "Não foi possível enviar a resposta."); }
@@ -84,7 +86,7 @@ export default function RoomLobby() {
       <section className={styles.board} aria-labelledby="room-title">
         <header className={styles.header}>
           <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena</span></div>
-          <div className={styles.status} role="status" aria-live="polite"><span className={styles.statusDot} />{status === "connected" ? "Conectado" : status === "reconnecting" ? "Reconectando" : "Aguardando conexão"}</div>
+          <div className={styles.status} role="status" aria-live="polite"><span className={styles.statusDot} />{status === "connected" ? (ready ? "Conectado" : "Sincronizando…") : status === "reconnecting" ? "Reconectando" : "Aguardando conexão"}</div>
         </header>
         {phase === "LOBBY" && (
           <div className={styles.playerForm}>
@@ -100,7 +102,7 @@ export default function RoomLobby() {
             <h1 id="room-title">{match.question.prompt}</h1>
             <div className={styles.answerGrid}>
               {match.question.options.map((option) => (
-                <button type="button" className={`${styles.answerTile} ${selected === option.id ? styles.selectedAnswer : ""}`} key={option.id} disabled={Boolean(selected)} onClick={() => answer(option.id)}>{option.text}</button>
+                <button type="button" className={`${styles.answerTile} ${selected === option.id ? styles.selectedAnswer : ""}`} key={option.id} disabled={!ready || Boolean(selected)} onClick={() => answer(option.id)}>{option.text}</button>
               ))}
             </div>
             <p className={styles.note}>{selected ? "Resposta enviada. Aguarde o resultado." : "Escolha uma alternativa."}</p>
