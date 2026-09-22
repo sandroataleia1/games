@@ -4,13 +4,14 @@ import { createDatabase } from "@quizarena/database";
 import { createClient } from "../../../packages/database/src/client.js";
 import { isolatedTestUrl } from "../../../packages/database/tooling/environment.js";
 import { createRealtimeServer } from "../src/server.js";
+import { createHttpRateLimiter } from "../src/http-rate-limit.js";
 
 const databaseUrl = isolatedTestUrl();
 const database = createDatabase({ databaseUrl });
 const cleanup = createClient(databaseUrl);
 const email = `http-${randomUUID()}@example.com`;
 let server, base, cookie, ownerId;
-beforeAll(async () => { server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database, webOrigin: "http://localhost:3000" }); await new Promise((resolve) => server.httpServer.listen(0, "127.0.0.1", resolve)); base = `http://127.0.0.1:${server.httpServer.address().port}`; });
+beforeAll(async () => { const rateLimiter = createHttpRateLimiter({ redisUrl: "redis://localhost:56379", namespace: `test:auth:${randomUUID()}`, logger: { error() {} } }); await rateLimiter.connect(); server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database, webOrigin: "http://localhost:3000", rateLimiter }); await new Promise((resolve) => server.httpServer.listen(0, "127.0.0.1", resolve)); base = `http://127.0.0.1:${server.httpServer.address().port}`; });
 afterAll(async () => { await server.close(); if (ownerId) { await cleanup.organizerSession.deleteMany({ where: { ownerId } }); await cleanup.organizer.delete({ where: { id: ownerId } }); } await Promise.all([database.close(), cleanup.$disconnect()]); });
 const request = (path, options = {}) => fetch(base + path, { ...options, headers: { Origin: "http://localhost:3000", ...(options.body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}), ...options.headers } });
 

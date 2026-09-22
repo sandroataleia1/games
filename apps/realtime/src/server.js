@@ -9,6 +9,7 @@ import { createDependencyChecks } from "./dependencies.js";
 import { createHealthChecker } from "./health.js";
 import { createLobbyRuntime } from "./lobby.js";
 import { cookieValue } from "./api.js";
+import { createHttpRateLimiter } from "./http-rate-limit.js";
 
 export function createRealtimeServer({
   healthChecker,
@@ -17,8 +18,10 @@ export function createRealtimeServer({
   webOrigin = "http://localhost:3000",
   database,
   production = false,
+  rateLimiter,
+  trustProxy = false,
 }) {
-  const httpServer = http.createServer(createApp({ healthChecker, webOrigin, database, production }));
+  const httpServer = http.createServer(createApp({ healthChecker, webOrigin, database, production, rateLimiter, trustProxy }));
   const io = new Server(httpServer, {
     cors: { origin: webOrigin, credentials: true },
     maxHttpBufferSize: 16 * 1024,
@@ -53,7 +56,7 @@ export function createRealtimeServer({
           io.close(resolve);
           httpServer.closeIdleConnections();
         });
-        await Promise.all([dependencies?.close(), lobbyClosing]);
+        await Promise.all([dependencies?.close(), rateLimiter?.close(), lobbyClosing]);
       })();
       return closing;
     },
@@ -75,6 +78,13 @@ export async function start() {
     redisUrl: process.env.REDIS_URL,
   });
   const database = createDatabase({ databaseUrl: process.env.DATABASE_URL, maxPlayers: Number(process.env.MAX_PLAYERS || 20) });
+  const rateLimiter = createHttpRateLimiter({
+    redisUrl: process.env.REDIS_URL,
+    limit: Number(process.env.HTTP_AUTH_RATE_LIMIT || 10),
+    windowMs: Number(process.env.HTTP_AUTH_RATE_WINDOW_SECONDS || 60) * 1000,
+    namespace: process.env.HTTP_RATE_LIMIT_NAMESPACE || "quizarena:http:rate-limit",
+  });
+  await rateLimiter.connect();
   let lobby;
   const healthChecker = createHealthChecker({
     checkPostgres: dependencies.checkPostgres,
@@ -86,6 +96,8 @@ export async function start() {
     webOrigin: process.env.WEB_ORIGIN,
     database,
     production: process.env.NODE_ENV === "production",
+    rateLimiter,
+    trustProxy: process.env.TRUST_PROXY === "true",
   });
   lobby = createLobbyRuntime({
     io: server.io,

@@ -3,6 +3,7 @@ import { afterAll, beforeAll, expect, test } from "vitest";
 import { createDatabase } from "../src/index.js";
 import { createClient } from "../src/client.js";
 import { isolatedTestUrl } from "../tooling/environment.js";
+import { verifySecret } from "../src/services/tokens.js";
 
 const url = isolatedTestUrl();
 const database = createDatabase({ databaseUrl: url });
@@ -50,4 +51,35 @@ test("enforces ownership, publication validation, optimistic concurrency and his
   expect((await database.organizers.unpublish(a.user.id, quiz.id)).status).toBe("DRAFT");
   await expect(database.organizers.remove(a.user.id, quiz.id)).rejects.toMatchObject({ code: "QUIZ_IN_USE" });
   expect((await database.sessions.getById(session.id)).quizSnapshot.title).toBe(snapshot.title);
+});
+
+test("reorders alternatives without changing identity, correctness, persistence or snapshot", async () => {
+  const account = await owner("option-order");
+  let quiz = await database.organizers.createQuiz(account.user.id, { title: "Ordem estável", description: null });
+  quiz = await database.organizers.addQuestion(account.user.id, quiz.id, { ...question, options: [{ text: "A", isCorrect: false }, { text: "B", isCorrect: false }, { text: "C", isCorrect: true }, { text: "D", isCorrect: false }] });
+  const original = quiz.questions[0], reordered = [original.options[2], original.options[0], original.options[1], original.options[3]];
+  quiz = await database.organizers.updateQuestion(account.user.id, quiz.id, original.id, { prompt: original.prompt, durationSeconds: original.durationSeconds, basePoints: original.basePoints, explanation: original.explanation, version: quiz.version, options: reordered.map(({ id, text, isCorrect }) => ({ id, text, isCorrect })) });
+  expect(quiz.questions[0].options.map(({ id }) => id)).toEqual(reordered.map(({ id }) => id));
+  expect(quiz.questions[0].options.find(({ isCorrect }) => isCorrect)).toMatchObject({ id: original.options[2].id, text: "C", position: 1 });
+  const persisted = await database.organizers.getQuiz(account.user.id, quiz.id);
+  expect(persisted.questions[0].options.map(({ text }) => text)).toEqual(["C", "A", "B", "D"]);
+  const stale = { prompt: original.prompt, durationSeconds: 40, basePoints: original.basePoints, explanation: null, version: quiz.version, options: reordered.map(({ id, text, isCorrect }) => ({ id, text, isCorrect })) };
+  const concurrent = await Promise.allSettled([database.organizers.updateQuestion(account.user.id, quiz.id, original.id, stale), database.organizers.updateQuestion(account.user.id, quiz.id, original.id, { ...stale, durationSeconds: 50 })]);
+  expect(concurrent.filter(({ status }) => status === "fulfilled")).toHaveLength(1);
+  expect(concurrent.find(({ status }) => status === "rejected").reason.code).toBe("CONFLICT");
+  const published = await database.organizers.publish(account.user.id, quiz.id);
+  const snapshot = await database.organizers.buildOwnedSnapshot(account.user.id, quiz.id);
+  expect(published.questions[0].options[0]).toMatchObject({ id: original.options[2].id, isCorrect: true });
+  expect(snapshot.questions[0].options[0]).toMatchObject({ id: original.options[2].id, text: "C" });
+});
+
+test("legacy migration owner has no valid password or session and is not public", async () => {
+  const legacy = await client.organizer.findFirst({ where: { email: { endsWith: "@migration.invalid" } } });
+  if (!legacy) return;
+  expect(await verifySecret("SenhaSegura123", legacy.passwordHash)).toBe(false);
+  expect(await client.organizerSession.count({ where: { ownerId: legacy.id } })).toBe(0);
+  await expect(database.organizers.login({ email: legacy.email, password: "SenhaSegura123" })).rejects.toMatchObject({ code: "INVALID_CREDENTIALS" });
+  expect(await client.organizerSession.count({ where: { ownerId: legacy.id } })).toBe(0);
+  expect(await database.organizers.authenticate(null)).toBeNull();
+  expect((await database.organizers.publishedOwned(legacy.id)).every((quiz) => quiz.status === "PUBLISHED")).toBe(true);
 });
