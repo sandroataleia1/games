@@ -3,7 +3,7 @@ import { chromium } from "@playwright/test";
 
 const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 const browser = await chromium.launch({ headless: true, executablePath });
-const base = "http://localhost:3000";
+const base = process.env.SMOKE_BASE_URL || "http://localhost:3000";
 const stamp = Date.now();
 
 async function overflowCheck(page, path) {
