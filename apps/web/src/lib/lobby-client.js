@@ -15,7 +15,7 @@ export function saveSession(key, value) {
 }
 
 export function createLobbyClient({ onStatusChange, onStateChange, onQuestionResult, onFinished } = {}) {
-  const socket = io(process.env.NEXT_PUBLIC_REALTIME_URL, { autoConnect: false, reconnection: true });
+  const socket = io(process.env.NEXT_PUBLIC_REALTIME_URL, { autoConnect: false, reconnection: true, withCredentials: true });
   const update = (status) => onStatusChange?.(status);
   socket.on("connect", () => {
     update("connecting");

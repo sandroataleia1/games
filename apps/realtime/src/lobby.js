@@ -167,12 +167,12 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     await rateLimit("create", socket.handshake.address);
     const parsed = lobbySchemas.roomCreate.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
-    const snapshot = await database.quizzes.buildQuizSnapshot(parsed.data.quizId);
+    if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
     const hostToken = randomBytes(32).toString("hex");
     let session;
     for (let attempt = 0; attempt < 5; attempt += 1) {
-      try { session = await database.sessions.create({ roomCode: generateRoomCode(), snapshot, hostToken }); break; }
-      catch (error) { if (mapError(error) !== "ROOM_CODE_CONFLICT" || attempt === 4) throw new DomainError("ROOM_CODE_CONFLICT"); }
+      try { session = await database.organizers.createOwnedRoom(socket.data.organizer.id, parsed.data.quizId, generateRoomCode(), hostToken); break; }
+      catch (error) { if (mapError(error) !== "ROOM_CODE_CONFLICT") throw error; if (attempt === 4) throw new DomainError("ROOM_CODE_CONFLICT"); }
     }
     await socket.join(session.roomCode);
     socket.data.hostRoomCode = session.roomCode;
@@ -185,11 +185,8 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     const parsed = lobbySchemas.quizList.safeParse(payload ?? {});
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     await ensureReady();
-    const quizzes = await database.quizzes.listByStatus("PUBLISHED");
-    const data = await Promise.all(quizzes.map(async (quiz) => {
-      const full = await database.quizzes.getById(quiz.id);
-      return { id: full.id, title: full.title, questionCount: full.questions.length };
-    }));
+    if (!_socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
+    const data = await database.organizers.publishedOwned(_socket.data.organizer.id);
     return ackOk({ quizzes: data });
   }
   async function joinRoom(socket, payload) {

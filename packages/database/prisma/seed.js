@@ -6,8 +6,10 @@ import { quizRepository } from "../src/repositories/quizzes.js";
 import { snapshotFromQuiz } from "../src/mappers/snapshot.js";
 import { questionInputSchema } from "@quizarena/contracts";
 import { DomainError, parse } from "../src/errors/domain-error.js";
+import { hashSecret } from "../src/services/tokens.js";
 
 export const SEED_QUIZ_ID = "00000000-0000-4000-8000-000000000001";
+export const SEED_ORGANIZER_ID = "00000000-0000-4000-8000-000000000002";
 const content = [
   [
     "Qual planeta é conhecido como Planeta Vermelho?",
@@ -39,6 +41,7 @@ const content = [
 
 export async function seedDevelopment(client) {
   return transaction(client, async (tx) => {
+    await tx.organizer.upsert({ where: { id: SEED_ORGANIZER_ID }, update: {}, create: { id: SEED_ORGANIZER_ID, name: "Organizador de desenvolvimento", email: "organizador@quizarena.local", passwordHash: await hashSecret("QuizArena2026") } });
     const repo = quizRepository(tx);
     const existing = await repo.get(SEED_QUIZ_ID);
     if (existing) {
@@ -48,12 +51,14 @@ export async function seedDevelopment(client) {
       )
         throw new DomainError("SEED_CONFLICT");
       snapshotFromQuiz(existing);
-      return existing;
+      if (existing.ownerId !== SEED_ORGANIZER_ID) await tx.quiz.update({ where: { id: SEED_QUIZ_ID }, data: { ownerId: SEED_ORGANIZER_ID } });
+      return repo.get(SEED_QUIZ_ID);
     }
     await repo.create({
       id: SEED_QUIZ_ID,
       title: "Conhecimentos Gerais",
       description: "Quiz de desenvolvimento.",
+      ownerId: SEED_ORGANIZER_ID,
     });
     for (const [index, [prompt, texts, explanation]] of content.entries()) {
       await repo.addQuestion(

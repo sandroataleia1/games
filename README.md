@@ -1,5 +1,7 @@
 # QuizArena
 
+Organizadores podem criar conta em `/cadastro`, entrar em `/login` e gerenciar quizzes em `/painel`. O seed local cria `organizador@quizarena.local` com a senha `QuizArena2026`; essa credencial existe somente no ambiente de desenvolvimento.
+
 Fundação de um quiz multiplayer: tela principal na TV e celulares como controles. O lobby v1 permite escolher quiz publicado, criar sala, entrar com código e nome, acompanhar participantes e reassumir uma identidade anônima.
 
 ## Pré-requisitos

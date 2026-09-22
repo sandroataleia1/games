@@ -1,5 +1,7 @@
 # Arquitetura
 
+O processo realtime também hospeda a API HTTP autenticada. Isso reaproveita a conexão Prisma e mantém uma única autoridade para criar salas. O frontend Next.js encaminha `/api/*` ao processo realtime e envia o cookie no handshake Socket.IO.
+
 ## Responsabilidades
 
 - `apps/web`: Next.js App Router JavaScript. Interface inicial e futuras APIs administrativas; **não mantém salas em memória** nem importa Prisma.

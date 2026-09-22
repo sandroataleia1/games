@@ -1,8 +1,9 @@
 export class DomainError extends Error {
-  constructor(code, message = code) {
+  constructor(code, message = code, details) {
     super(message);
     this.name = "DomainError";
     this.code = code;
+    this.details = details;
   }
 }
 export function parse(schema, value, code = "QUIZ_INVALID") {

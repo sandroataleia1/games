@@ -10,6 +10,7 @@ import { questionInput, TEST_TOKEN } from "./fixtures.js";
 
 let client, database, development;
 let devCounts;
+let ownerId;
 const ownedQuizIds = [];
 const counts = async (db) =>
   Promise.all([
@@ -27,6 +28,7 @@ beforeAll(async () => {
     (await client.$queryRaw`SELECT current_schema() AS name`)[0].name,
   ).toBe("quizarena_test");
   devCounts = await counts(development);
+  ownerId = (await database.organizers.register({ name: "Organizador Teste", email: `teste-${randomUUID()}@example.com`, password: "SenhaSegura123" })).user.id;
 });
 afterAll(async () => {
   if (client && ownedQuizIds.length) {
@@ -43,6 +45,8 @@ afterAll(async () => {
       });
       await tx.gameSession.deleteMany({ where: { id: { in: ids } } });
       await tx.quiz.deleteMany({ where: { id: { in: ownedQuizIds } } });
+      await tx.organizerSession.deleteMany({ where: { ownerId } });
+      await tx.organizer.deleteMany({ where: { id: ownerId } });
     });
   }
   try {
@@ -56,7 +60,7 @@ afterAll(async () => {
   }
 });
 async function draft(title = "Quiz de integração") {
-  const quiz = await database.quizzes.createDraft({ title });
+  const quiz = await database.quizzes.createDraft({ title, ownerId });
   ownedQuizIds.push(quiz.id);
   return quiz;
 }
@@ -378,7 +382,7 @@ test("falha SQL após escrita reverte a transação inteira", async () => {
       client,
       async (tx) => {
         const repo = quizRepository(tx);
-        await repo.create({ id, title: "Rollback" });
+        await repo.create({ id, title: "Rollback", ownerId });
         const input = questionInput();
         input.options[1].position = input.options[0].position;
         await repo.addQuestion(id, input);

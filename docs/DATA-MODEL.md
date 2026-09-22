@@ -1,5 +1,9 @@
 # Modelo persistente do QuizArena
 
+`Organizer` possui muitos `Quiz` e muitas sessões autenticadas. `OrganizerSession` guarda somente SHA-256 do token e expiração explícita. `Quiz.ownerId` é obrigatório e `Quiz.version` sustenta controle otimista. A migration cria um proprietário isolado para quizzes preexistentes antes de tornar a coluna obrigatória; o seed reassocia seu quiz ao organizador de desenvolvimento.
+
+Quizzes usados por `GameSession` não podem ser removidos. Despublicar altera somente o conteúdo editável; sessões existentes continuam referenciando o snapshot imutável.
+
 ## Projeções do lobby
 
 PostgreSQL guarda a confirmação de `GameSession`, o snapshot histórico e `Participant`, incluindo somente hashes de tokens. Redis usa o prefixo `quizarena:lobby:` para `room:<ROOM_CODE>` (DTO público), `presence:<ROOM_CODE>:<PARTICIPANT_ID>` (presença efêmera) e `rate:<KIND>:<IDENTITY>` (janelas atômicas). A projeção e a presença usam `LOBBY_TTL_SECONDS`; rate limits usam TTL próprio. Redis não é fonte permanente e a projeção é reconstruída do PostgreSQL.

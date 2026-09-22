@@ -8,18 +8,22 @@ import { createApp } from "./app.js";
 import { createDependencyChecks } from "./dependencies.js";
 import { createHealthChecker } from "./health.js";
 import { createLobbyRuntime } from "./lobby.js";
+import { cookieValue } from "./api.js";
 
 export function createRealtimeServer({
   healthChecker,
   dependencies,
   lobby = null,
   webOrigin = "http://localhost:3000",
+  database,
+  production = false,
 }) {
-  const httpServer = http.createServer(createApp({ healthChecker, webOrigin }));
+  const httpServer = http.createServer(createApp({ healthChecker, webOrigin, database, production }));
   const io = new Server(httpServer, {
-    cors: { origin: webOrigin },
+    cors: { origin: webOrigin, credentials: true },
     maxHttpBufferSize: 16 * 1024,
   });
+  if (database) io.use(async (socket, next) => { try { socket.data.organizer = await database.organizers.authenticate(cookieValue(socket.request.headers.cookie)); next(); } catch { next(); } });
   io.on("connection", (socket) =>
     socket.on(EVENTS.SYSTEM_PING, (payload, acknowledge) => {
       const parsed = systemPingSchema.safeParse(payload);
@@ -80,6 +84,8 @@ export async function start() {
     healthChecker,
     dependencies,
     webOrigin: process.env.WEB_ORIGIN,
+    database,
+    production: process.env.NODE_ENV === "production",
   });
   lobby = createLobbyRuntime({
     io: server.io,

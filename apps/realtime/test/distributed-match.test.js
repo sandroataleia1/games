@@ -18,7 +18,7 @@ const testRunId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 async function instance() {
   const database = createDatabase({ databaseUrl });
-  const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }) });
+  const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database });
   const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: `quizarena:test:rate:distributed:${testRunId}:${resources.length}` });
   server.setLobby(lobby);
   await lobby.connect();
@@ -28,8 +28,8 @@ async function instance() {
   return resource;
 }
 
-async function client(port) {
-  const socket = connectClient(`http://127.0.0.1:${port}`, { transports: ["websocket"] });
+async function client(port, token) {
+  const socket = connectClient(`http://127.0.0.1:${port}`, { transports: ["websocket"], extraHeaders: token ? { Cookie: `quizarena_session=${token}` } : undefined });
   clients.push(socket);
   await new Promise((resolve, reject) => { socket.once("connect", resolve); socket.once("connect_error", reject); });
   return socket;
@@ -69,7 +69,8 @@ async function cleanup() {
 test("full match lifecycle crosses instances and recovers its timer", async () => {
   const instanceA = await instance();
   const instanceB = await instance();
-  const host = await client(instanceA.port);
+  const auth = await instanceA.database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const host = await client(instanceA.port, auth.token);
   const player = await client(instanceB.port);
   const counts = { host: {}, player: {} };
   const received = { host: {}, player: {} };
@@ -82,7 +83,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   }
   countEvents("host", host);
   countEvents("player", player);
-  const quiz = (await instanceA.database.quizzes.listByStatus("PUBLISHED"))[0];
+  const quiz = (await instanceA.database.organizers.publishedOwned(auth.user.id))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   expect(created.ok).toBe(true);
   const roomCode = created.data.roomCode;
@@ -109,7 +110,7 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
   const resultB = await resultOnB;
   expect(resultA.ranking).toEqual(resultB.ranking);
   expect(resultA).not.toHaveProperty("answers");
-  const secondHost = await client(instanceB.port);
+  const secondHost = await client(instanceB.port, auth.token);
   const hostResumed = await command(secondHost, EVENTS.HOST_RESUME, { roomCode, hostToken: created.data.hostToken });
   expect(hostResumed.ok).toBe(true);
   const questionEventsBeforeAdvance = {
@@ -180,8 +181,9 @@ test("full match lifecycle crosses instances and recovers its timer", async () =
 
 test("two database connections reject concurrent start transitions", async () => {
   const instanceA = resources[0] || await instance();
-  const host = await client(instanceA.port);
-  const quiz = (await instanceA.database.quizzes.listByStatus("PUBLISHED"))[0];
+  const auth = await instanceA.database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const host = await client(instanceA.port, auth.token);
+  const quiz = (await instanceA.database.organizers.publishedOwned(auth.user.id))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   const roomCode = created.data.roomCode;
   roomCodes.push(roomCode);

@@ -40,10 +40,39 @@ model Quiz {
   updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
   publishedAt DateTime?  @db.Timestamptz(3)
   archivedAt  DateTime?  @db.Timestamptz(3)
+  ownerId     String     @db.Uuid
+  version     Int        @default(1)
+  owner       Organizer @relation(fields: [ownerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   questions   Question[]
   sessions    GameSession[]
 
   @@index([status])
+  @@index([ownerId, updatedAt])
+}
+
+model Organizer {
+  id           String             @id @default(uuid()) @db.Uuid
+  name         String
+  email        String
+  passwordHash String
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime           @updatedAt @db.Timestamptz(3)
+  quizzes      Quiz[]
+  sessions     OrganizerSession[]
+
+  @@unique([email])
+}
+
+model OrganizerSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  ownerId   String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime  @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  owner     Organizer @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@index([ownerId, expiresAt])
+  @@index([expiresAt])
 }
 
 model Question {

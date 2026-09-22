@@ -10,7 +10,7 @@ config({ path: new URL("../../../.env", import.meta.url), quiet: true });
 const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
 const database = createDatabase({ databaseUrl });
-const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }) });
+const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database });
 const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: "quizarena:test:rate:match" });
 const clients = [];
 let roomCode;
@@ -19,8 +19,8 @@ async function command(client, event, payload) {
   return new Promise((resolve) => client.timeout(5000).emit(event, payload, (_error, response) => resolve(response)));
 }
 
-async function connect(port) {
-  const client = connectClient(`http://127.0.0.1:${port}`, { transports: ["websocket"] });
+async function connect(port, token) {
+  const client = connectClient(`http://127.0.0.1:${port}`, { transports: ["websocket"], extraHeaders: token ? { Cookie: `quizarena_session=${token}` } : undefined });
   clients.push(client);
   await new Promise((resolve, reject) => { client.once("connect", resolve); client.once("connect_error", reject); });
   return client;
@@ -30,9 +30,10 @@ test("host starts a question and player answer is evaluated by the server", asyn
   await lobby.connect();
   server.setLobby(lobby);
   await new Promise((resolve) => server.httpServer.listen(0, resolve));
-  const host = await connect(server.httpServer.address().port);
+  const auth = await database.organizers.login({ email: "organizador@quizarena.local", password: "QuizArena2026" });
+  const host = await connect(server.httpServer.address().port, auth.token);
   const player = await connect(server.httpServer.address().port);
-  const quiz = (await database.quizzes.listByStatus("PUBLISHED"))[0];
+  const quiz = (await database.organizers.publishedOwned(auth.user.id))[0];
   const created = await command(host, EVENTS.ROOM_CREATE, { quizId: quiz.id });
   expect(created.ok).toBe(true);
   roomCode = created.data.roomCode;

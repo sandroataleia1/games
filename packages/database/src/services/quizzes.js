@@ -17,8 +17,10 @@ export async function requireQuiz(repository, id) {
 export function createQuizService(client) {
   return {
     createDraft(input) {
+      const { ownerId, ...quiz } = input;
+      if (!ownerId) throw new DomainError("OWNER_REQUIRED");
       return transaction(client, (tx) =>
-        quizRepository(tx).create(parse(quizInputSchema, input)),
+        quizRepository(tx).create({ ...parse(quizInputSchema, quiz), ownerId }),
       );
     },
     getById(id) {
