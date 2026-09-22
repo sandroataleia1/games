@@ -1,0 +1,122 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum QuizStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+}
+
+enum GameSessionStatus {
+  WAITING
+  ACTIVE
+  FINISHED
+  CANCELLED
+}
+
+model Quiz {
+  id          String     @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  status      QuizStatus @default(DRAFT)
+  createdAt   DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime   @updatedAt @db.Timestamptz(3)
+  publishedAt DateTime?  @db.Timestamptz(3)
+  archivedAt  DateTime?  @db.Timestamptz(3)
+  questions   Question[]
+  sessions    GameSession[]
+
+  @@index([status])
+}
+
+model Question {
+  id              String @id @default(uuid()) @db.Uuid
+  quizId          String @db.Uuid
+  position        Int
+  prompt          String
+  type            QuestionType @default(SINGLE_CHOICE)
+  durationSeconds Int
+  basePoints      Int
+  explanation     String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  quiz            Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+  options         QuestionOption[]
+
+  @@unique([quizId, position])
+}
+
+model QuestionOption {
+  id         String @id @default(uuid()) @db.Uuid
+  questionId String @db.Uuid
+  position   Int
+  text       String
+  isCorrect  Boolean
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @db.Timestamptz(3)
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([questionId, position])
+}
+
+model GameSession {
+  id            String @id @default(uuid()) @db.Uuid
+  roomCode      String @unique
+  quizId        String @db.Uuid
+  status        GameSessionStatus @default(WAITING)
+  hostTokenHash String
+  quizSnapshot  Json @db.JsonB
+  createdAt     DateTime @default(now()) @db.Timestamptz(3)
+  startedAt     DateTime? @db.Timestamptz(3)
+  finishedAt    DateTime? @db.Timestamptz(3)
+  cancelledAt   DateTime? @db.Timestamptz(3)
+  quiz          Quiz @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  participants  Participant[]
+  answers       Answer[]
+
+  @@index([status, createdAt])
+  @@index([quizId])
+}
+
+model Participant {
+  id                 String @id @default(uuid()) @db.Uuid
+  gameSessionId      String @db.Uuid
+  displayName        String
+  normalizedName     String
+  reconnectTokenHash String
+  score              Int @default(0)
+  joinedAt           DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt         DateTime @default(now()) @db.Timestamptz(3)
+  disconnectedAt     DateTime? @db.Timestamptz(3)
+  gameSession        GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  answers            Answer[]
+
+  @@unique([gameSessionId, normalizedName])
+  @@unique([id, gameSessionId])
+}
+
+model Answer {
+  id                String @id @default(uuid()) @db.Uuid
+  gameSessionId     String @db.Uuid
+  participantId     String @db.Uuid
+  questionRef       String @db.Uuid
+  selectedOptionRef String @db.Uuid
+  isCorrect         Boolean
+  responseTimeMs    Int
+  pointsAwarded     Int
+  answeredAt        DateTime @default(now()) @db.Timestamptz(3)
+  gameSession       GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  participant       Participant @relation(fields: [participantId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([gameSessionId, participantId, questionRef])
+}

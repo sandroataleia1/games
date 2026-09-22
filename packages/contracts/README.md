@@ -14,3 +14,7 @@ O servidor valida o ping com Zod, emite pong e devolve o mesmo pong no acknowled
 Payload inválido recebe acknowledgement `{ error: "invalid_payload" }`, validável com `systemErrorSchema`; não emite pong nem encerra a conexão. O emissor deve fornecer acknowledgement para receber o erro. Sem callback, o payload inválido é descartado. Campos extras são rejeitados.
 
 Não há eventos de salas, jogadores ou perguntas. A versão dos eventos será introduzida quando os contratos começarem a evoluir.
+
+## Contratos de dom?nio
+
+`QUIZ_STATUS`, `SESSION_STATUS` e `QUESTION_TYPE` s?o enums compartilhados. `quizInputSchema`, `questionInputSchema` e `quizSnapshotSchema` validam o dom?nio. Snapshot v1 exige UUIDs distintos, posi??es ?nicas e ordenadas, 2?6 alternativas com exatamente uma correta, dura??o 5?120s e pontos-base 100?10.000. O snapshot completo inclui gabaritos e ? interno do servidor; n?o deve ser enviado ao jogador sem DTO espec?fico. N?o foram adicionados eventos Socket.IO de partidas.

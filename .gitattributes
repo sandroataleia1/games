@@ -1,0 +1,2 @@
+# Preservar os bytes/checksums das migrations também em checkouts Windows.
+packages/database/prisma/migrations/**/migration.sql text eol=lf

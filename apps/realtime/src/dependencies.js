@@ -1,4 +1,4 @@
-import pg from "pg";
+import { createDatabaseHealthProbe } from "@quizarena/database";
 import { createClient } from "redis";
 
 export function createDependencyChecks({
@@ -6,16 +6,7 @@ export function createDependencyChecks({
   redisUrl,
   logger = console,
 }) {
-  const pool = new pg.Pool({
-    connectionString: databaseUrl,
-    connectionTimeoutMillis: 1500,
-    query_timeout: 1500,
-  });
-  pool.on("error", () =>
-    logger.error(
-      "[postgres] Conexão indisponível; nova tentativa no próximo check.",
-    ),
-  );
+  const postgres = createDatabaseHealthProbe(databaseUrl);
   const redis = createClient({
     url: redisUrl,
     disableOfflineQueue: true,
@@ -32,8 +23,7 @@ export function createDependencyChecks({
   let closing;
   return {
     async checkPostgres() {
-      await pool.query("SELECT 1");
-      return true;
+      return postgres.check();
     },
     async checkRedis() {
       return redis.isReady && (await redis.ping()) === "PONG";
@@ -41,7 +31,7 @@ export function createDependencyChecks({
     close() {
       closing ??= (async () => {
         if (redis.isOpen) redis.destroy();
-        await Promise.all([pool.end(), connection]);
+        await Promise.all([postgres.close(), connection]);
       })();
       return closing;
     },

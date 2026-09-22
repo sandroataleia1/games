@@ -17,7 +17,14 @@
     "test": "vitest run",
     "build": "pnpm --filter @quizarena/web build",
     "check": "pnpm test && pnpm lint && pnpm build",
-    "format:check": "prettier --check apps/realtime/src apps/realtime/test apps/web/src packages/contracts docs README.md"
+    "format:check": "prettier --check apps/realtime/src apps/realtime/test apps/web/src packages/contracts docs README.md",
+    "db:generate": "pnpm --filter @quizarena/database db:generate",
+    "db:migrate": "pnpm --filter @quizarena/database db:migrate",
+    "db:seed": "pnpm --filter @quizarena/database db:seed",
+    "db:studio": "pnpm --filter @quizarena/database db:studio",
+    "db:test:prepare": "pnpm --filter @quizarena/database db:test:prepare",
+    "test:unit": "vitest run --exclude packages/database/test/postgres.test.js",
+    "test:integration": "vitest run packages/database/test/postgres.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

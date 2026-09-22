@@ -17,7 +17,12 @@ pnpm.cmd install
 Copy-Item .env.example .env
 Copy-Item apps/web/.env.example apps/web/.env
 Copy-Item apps/realtime/.env.example apps/realtime/.env
+Copy-Item packages/database/.env.example packages/database/.env
 pnpm.cmd infra:up
+pnpm.cmd db:generate
+pnpm.cmd db:migrate
+pnpm.cmd db:seed
+pnpm.cmd db:test:prepare
 pnpm.cmd dev
 ```
 
@@ -33,7 +38,7 @@ O projeto usa exclusivamente pnpm workspaces e `pnpm-lock.yaml`. O lockfile npm 
 | `apps/realtime/.env` | `REALTIME_PORT`               | `3001`                                                            |
 | `apps/realtime/.env` | `WEB_ORIGIN`                  | `http://localhost:3000`                                           |
 | `apps/realtime/.env` | `REDIS_URL`                   | `redis://localhost:6379`                                          |
-| `apps/realtime/.env` | `DATABASE_URL`                | `postgresql://onlinegames:onlinegames@localhost:5432/onlinegames` |
+| `apps/realtime/.env` | `DATABASE_URL`                | `postgresql://onlinegames:onlinegames@127.0.0.1:5432/onlinegames` |
 | `.env` da raiz       | `POSTGRES_PORT`, `REDIS_PORT` | `5432`, `6379`                                                    |
 
 O Compose lê explicitamente o `.env` da raiz; cada aplicativo lê seu próprio `.env`. O arquivo da raiz não configura automaticamente os aplicativos. Reinicie o Next.js após alterar variáveis públicas e refaça o build de produção.
@@ -74,7 +79,8 @@ O smoke usa Chromium sem janela, verifica desktop/celular, botões desabilitados
 
 ## Problemas comuns no Windows
 
-- Porta ocupada ou bloqueada: ajuste `POSTGRES_PORT`/`REDIS_PORT` na raiz e as URLs correspondentes em `apps/realtime/.env`. Não encerre serviços de outros projetos.
+- `db:generate` com EPERM na DLL do Prisma: encerre realtime, Studio e outros processos deste projeto que estejam usando Prisma antes de gerar novamente. No Windows, a DLL n?o pode ser substitu?da enquanto estiver carregada.
+- Porta ocupada ou bloqueada: ajuste `POSTGRES_PORT`/`REDIS_PORT` na raiz e as URLs correspondentes em `apps/realtime/.env` e `packages/database/.env`. Não encerre serviços de outros projetos.
 - Docker: confirme que o Engine está ativo e que seu usuário pode acessar o pipe. A falta de acesso ao Docker impede a validação real, mas não os testes unitários.
 - Configuração Docker inacessível: neste ambiente de sandbox, foi usado `docker --config ./infra ...` com um diretório local sem credenciais. Isso não altera configurações globais.
 - Se necessário ao usar os scripts no sandbox: `$env:DOCKER_CONFIG = "$PWD/infra"`.
@@ -83,3 +89,21 @@ O smoke usa Chromium sem janela, verifica desktop/celular, botões desabilitados
 - Celular físico: `localhost` aponta para o celular. Para teste em LAN, configure a URL realtime com o IP do computador e CORS com a origem web correspondente, reinicie a web e permita somente as portas web/realtime no firewall. PostgreSQL e Redis continuam em loopback.
 
 Veja [arquitetura](docs/ARCHITECTURE.md), [ADR](docs/ADR-001-web-realtime-separados.md) e [contratos](packages/contracts/README.md).
+
+## Persist?ncia e comandos de banco
+
+O pacote `packages/database` l? seu pr?prio `.env`. Configure `DATABASE_URL` para desenvolvimento (schema public) e `TEST_DATABASE_URL` para schema quizarena_test. Os exemplos s?o locais e fict?cios. Nesta m?quina, ambos usam PostgreSQL em `127.0.0.1:55433`; o endere?o IPv4 expl?cito evita timeouts observados com a resolu??o de localhost no Windows.
+
+| Comando                | A??o                                                              |
+| ---------------------- | ----------------------------------------------------------------- |
+| `pnpm db:generate`     | Gera o cliente Prisma JavaScript ignorado pelo Git                |
+| `pnpm db:migrate`      | Aplica migrations versionadas com migrate deploy                  |
+| `pnpm db:seed`         | Cria Conhecimentos Gerais; reexecu??o n?o duplica nem sobrescreve |
+| `pnpm db:studio`       | Abre Prisma Studio local para inspe??o manual                     |
+| `pnpm db:test:prepare` | Aplica migrations no schema exclusivo de testes, sem reset        |
+
+Depois de instalar depend?ncias em checkout novo, execute db:generate antes dos aplicativos e testes. N?o use prisma db push. As migrations n?o cont?m seed e n?o s?o executadas em runtime.
+
+O seed tem seis perguntas com quatro alternativas e n?o cria partidas. A integra??o remove somente os IDs de teste da execu??o e verifica que contagens dos dados de desenvolvimento n?o mudaram. N?o h? comandos autom?ticos de reset/drop/truncate.
+
+Ainda n?o h? autentica??o, ownership, API administrativa, gera??o de tokens/c?digos, ativa??o p?blica de sess?es ou estado realtime de partidas. O score n?o ? calculado neste incremento. Veja [modelo de dados](docs/DATA-MODEL.md) e [decis?o de snapshots](docs/ADR-002-persistencia-e-snapshots.md).
