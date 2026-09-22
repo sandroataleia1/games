@@ -5,6 +5,7 @@ import { sessionRepository } from "../repositories/sessions.js";
 import { quizRepository } from "../repositories/quizzes.js";
 import { requireQuiz } from "./quizzes.js";
 import { hashToken, verifyToken } from "./tokens.js";
+import { calculatePoints } from "./scoring.js";
 import {
   validateSnapshot,
   sessionDTO,
@@ -82,8 +83,7 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
         const existing = await repo.answersForQuestion(parsed.gameSessionId, parsed.questionRef);
         if (existing.some((answer) => answer.participantId === parsed.participantId)) throw new DomainError("ANSWER_ALREADY_SUBMITTED");
         const responseTimeMs = Math.max(0, now.getTime() - session.questionStartedAt.getTime());
-        const speedBonus = option.isCorrect ? Math.max(0, Math.floor(question.basePoints * (1 - responseTimeMs / (question.durationSeconds * 1000)) * 0.5)) : 0;
-        const pointsAwarded = option.isCorrect ? question.basePoints + speedBonus : 0;
+        const pointsAwarded = calculatePoints({ basePoints: question.basePoints, responseTimeMs, durationMs: question.durationSeconds * 1000, isCorrect: option.isCorrect });
         await repo.answer({ gameSessionId: parsed.gameSessionId, participantId: parsed.participantId, questionRef: parsed.questionRef, selectedOptionRef: parsed.selectedOptionRef, isCorrect: option.isCorrect, responseTimeMs, pointsAwarded });
         await tx.participant.update({ where: { id_gameSessionId: { id: parsed.participantId, gameSessionId: parsed.gameSessionId } }, data: { score: { increment: pointsAwarded }, lastSeenAt: now } });
         return { answeredAt: now, isCorrect: option.isCorrect, pointsAwarded, responseTimeMs };

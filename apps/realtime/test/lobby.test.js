@@ -19,7 +19,7 @@ const createdRoomCodes = [];
 async function instance(port) {
   const database = createDatabase({ databaseUrl });
   const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }) });
-  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl });
+  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: "quizarena:test:rate:lobby" });
   server.setLobby(lobby);
   await lobby.connect();
   await new Promise((resolve) => server.httpServer.listen(port, resolve));

@@ -11,7 +11,7 @@ const databaseUrl = process.env.DATABASE_URL;
 const redisUrl = process.env.REDIS_URL;
 const database = createDatabase({ databaseUrl });
 const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }) });
-const lobby = createLobbyRuntime({ io: server.io, database, redisUrl });
+const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: "quizarena:test:rate:match" });
 const clients = [];
 let roomCode;
 

@@ -12,7 +12,7 @@ const RATE_LIMITS = Object.freeze({ create: [5, 60], join: [12, 60], resume: [10
 function roomKey(roomCode) { return `quizarena:lobby:room:${roomCode}`; }
 function presenceKey(roomCode, participantId) { return `quizarena:lobby:presence:${roomCode}:${participantId}`; }
 function gameLockKey(roomCode, round) { return `quizarena:lobby:game:lock:${roomCode}:${round}`; }
-function rateKey(kind, identity) { return `quizarena:lobby:rate:${kind}:${identity}`; }
+function rateKey(prefix, kind, identity) { return `${prefix}:${kind}:${identity}`; }
 function generateRoomCode() {
   const bytes = randomBytes(6);
   return [...bytes].map((byte) => CODE_ALPHABET[byte % CODE_ALPHABET.length]).join("");
@@ -68,7 +68,7 @@ function publicQuestion(session) {
   return { id: question.id, prompt: question.prompt, options: question.options.map(({ id, position, text }) => ({ id, position, text })), round: session.currentQuestionIndex + 1, totalRounds: session.quizSnapshot.questions.length, durationSeconds: question.durationSeconds, startedAt: session.questionStartedAt.toISOString(), endsAt: session.questionEndsAt.toISOString(), phase: "QUESTION" };
 }
 
-export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAULT_MAX_PLAYERS, ttlSeconds = DEFAULT_TTL_SECONDS, logger = console }) {
+export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAULT_MAX_PLAYERS, ttlSeconds = DEFAULT_TTL_SECONDS, rateLimitPrefix = "quizarena:lobby:rate", logger = console }) {
   const safeMaxPlayers = Math.min(Math.max(Number(maxPlayers) || DEFAULT_MAX_PLAYERS, 1), 100);
   const publisher = createClient({ url: redisUrl, disableOfflineQueue: true });
   const subscriber = publisher.duplicate();
@@ -82,6 +82,9 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     await Promise.all([publisher.connect(), subscriber.connect()]);
     io.adapter(createAdapter(publisher, subscriber));
     ready = true;
+    await recoverActiveMatches();
+  }
+  async function recoverActiveMatches() {
     const matches = await database.sessions.activeMatches();
     matches.forEach((session) => scheduleQuestion(session.roomCode, session.questionEndsAt));
   }
@@ -91,7 +94,7 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
   async function rateLimit(kind, identity) {
     await ensureReady();
     const [limit, ttl] = RATE_LIMITS[kind];
-    const key = rateKey(kind, identity || "unknown");
+    const key = rateKey(rateLimitPrefix, kind, identity || "unknown");
     const count = await publisher.incr(key);
     if (count === 1) await publisher.expire(key, ttl);
     if (count > limit) throw new DomainError("RATE_LIMITED");
@@ -302,5 +305,5 @@ export function createLobbyRuntime({ io, database, redisUrl, maxPlayers = DEFAUL
     closing ??= Promise.all([publisher.isOpen ? publisher.quit() : undefined, subscriber.isOpen ? subscriber.quit() : undefined]);
     return closing;
   }
-  return { connect, attach, close, isReady: () => ready };
+  return { connect, recoverActiveMatches, attach, close, isReady: () => ready };
 }
