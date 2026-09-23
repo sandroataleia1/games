@@ -13,14 +13,14 @@ export function GameCard({ module, variant = "compact", getCategoryByKey = () =>
   const { definition, capabilities } = module;
   const { playable, showBadge, statusLabel } = resolveCardState(definition, variant);
   const categoryTags = resolveCategoryTags(definition, variant, getCategoryByKey);
-  const isQuiz = definition.key === "quiz";
   return (
     <article
       className={styles.card}
       role="listitem"
       data-variant={variant}
-      data-game={definition.key}
-      style={{ "--accent-from": definition.visual.accent, "--accent-gradient": definition.visual.gradient, "--game-background": definition.visual.background ?? definition.visual.gradient }}
+      data-art={definition.visual.art ? "true" : undefined}
+      data-title={definition.name.toUpperCase()}
+      style={{ "--accent-from": definition.visual.accent, "--accent-gradient": definition.visual.gradient, "--game-background": definition.visual.background ?? definition.visual.gradient, ...(definition.visual.art ? { "--game-art": `url("${definition.visual.art}")` } : {}) }}
     >
       {showBadge && <span className={styles.badge} data-status={definition.status}>{statusLabel}</span>}
       {categoryTags.length > 0 && (
@@ -34,7 +34,6 @@ export function GameCard({ module, variant = "compact", getCategoryByKey = () =>
         <li>{capabilities.minPlayers}–{capabilities.maxPlayers} jogadores</li>
         {capabilities.supportsSolo && <li>Modo solo</li>}
       </ul>
-      {isQuiz && <div className={styles.liveCount} aria-label="Jogadores no momento">0 jogando agora</div>}
       {playable ? (
         <Link className={styles.cardLink} href={definition.route} aria-label={`Abrir detalhes de ${definition.name}`} />
       ) : (

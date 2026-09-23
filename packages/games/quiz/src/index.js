@@ -32,6 +32,7 @@ export const quizGame = defineGameModule({
       accent: "var(--lime)",
       gradient: "linear-gradient(135deg, var(--lime), var(--cyan))",
       background: "linear-gradient(145deg, #263a55, #152236)",
+      art: "/assets/quiz-card-art.png",
       icon: "Q",
     },
   },

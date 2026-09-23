@@ -51,6 +51,8 @@ export const gameDefinitionSchema = z
         accent: z.string().min(1),
         gradient: z.string().min(1),
         background: z.string().min(1).optional(),
+        // Optional card artwork, a same-site path like "/assets/x.png".
+        art: z.string().regex(/^\/(?!\/)[A-Za-z0-9._/-]+$/, "art deve ser um caminho interno").optional(),
         icon: z.string().min(1),
       })
       .strict(),

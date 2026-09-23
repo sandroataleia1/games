@@ -188,3 +188,10 @@ test("category definitions reject unknown fields and non-integer order", () => {
   expect(() => gameCategorySchema.parse({ ...trivia, secret: 1 })).toThrow();
   expect(() => gameCategorySchema.parse({ ...trivia, displayOrder: 1.5 })).toThrow();
 });
+
+test("card artwork must be an internal path, never an external URL", () => {
+  const visual = (art) => ({ ...baseDefinition, visual: { ...baseDefinition.visual, art } });
+  expect(gameDefinitionSchema.parse(visual("/assets/x.png")).visual.art).toBe("/assets/x.png");
+  expect(() => gameDefinitionSchema.parse(visual("https://evil.test/x.png"))).toThrow();
+  expect(() => gameDefinitionSchema.parse(visual("//evil.test/x.png"))).toThrow();
+});

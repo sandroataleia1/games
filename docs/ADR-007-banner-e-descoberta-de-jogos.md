@@ -151,3 +151,24 @@ todos os jogos com o aviso "Categoria não encontrada".
 visibilidade de uma categoria sem deploy. Nesse caso o banco controlaria apenas
 `displayOrder` e visibilidade; `key`, `slug` e a referência `categoryKeys` continuariam
 definidas no código, que seguiria como fonte das chaves.
+
+## Fechamento do PLATFORM-07A.3
+
+**Sem contadores fictícios.** O texto fixo "0 jogando agora" foi removido do card. Nada
+o substituiu: o card já comunica jogadores e modo solo pelas capacidades. "Jogadores
+online" será uma métrica futura, derivada do serviço de presença agregada por
+modalidade (não existe hoje); quando existir, deve chegar ao portal como dado pronto,
+nunca por consulta direta ao Redis dentro do componente da página.
+
+**Card sem ramificação por jogo.** A arte do card é dado do jogo (`visual.art`, caminho
+interno validado), não um caso especial: o `GameCard` só aplica um layout "com arte"
+(`data-art`) quando a definição traz uma, e o título grande vem do próprio nome
+(`data-title`). O nome do jogo permanece no DOM (visualmente oculto) para tecnologia
+assistiva. Um jogo sem arte usa o card padrão.
+
+**Origens do CORS.** `WEB_ORIGIN` aceita uma lista separada por vírgulas. O
+`parseWebOrigins` (`apps/realtime/src/origins.js`) é o único ponto que a interpreta:
+remove espaços e entradas vazias e descarta `*` (com credenciais, origens precisam ser
+explícitas). A mesma lista alimenta o CORS HTTP, a validação de mutações da API e o
+CORS do Socket.IO - antes, o Socket.IO recebia a string crua com vírgulas, e o navegador
+bloqueava a conexão. Sem origem configurada, nada é permitido por acidente.
