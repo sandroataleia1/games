@@ -105,6 +105,7 @@ export async function start() {
     redisUrl: process.env.REDIS_URL,
     maxPlayers: Number(process.env.MAX_PLAYERS || 20),
     ttlSeconds: Number(process.env.LOBBY_TTL_SECONDS || 21600),
+    resultAdvanceMs: Number(process.env.RESULT_ADVANCE_MS || 45000),
   });
   server.setLobby(lobby);
   await lobby.connect();

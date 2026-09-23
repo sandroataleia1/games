@@ -17,10 +17,10 @@ const clients = [];
 const accountIds = [];
 const usedRooms = [];
 
-async function instance() {
+async function instance(options = {}) {
   const database = createDatabase({ databaseUrl });
   const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database });
-  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: `quizarena:test:rate:portal:${randomUUID()}` });
+  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: `quizarena:test:rate:portal:${randomUUID()}`, ...options });
   server.setLobby(lobby);
   await lobby.connect();
   await new Promise((resolve) => server.httpServer.listen(0, resolve));
@@ -48,6 +48,12 @@ async function account(database, name) {
 async function onePublishedQuiz(database, ownerId) {
   let quiz = await database.organizers.createQuiz(ownerId, { title: `Quiz portal ${randomUUID()}`, description: null });
   quiz = await database.organizers.addQuestion(ownerId, quiz.id, { prompt: "2 + 2?", durationSeconds: 30, basePoints: 1000, explanation: null, options: [{ text: "4", isCorrect: true }, { text: "5", isCorrect: false }] });
+  return database.organizers.publish(ownerId, quiz.id);
+}
+async function twoQuestionQuizWithShortRounds(database, ownerId) {
+  let quiz = await database.organizers.createQuiz(ownerId, { title: `Quiz curto ${randomUUID()}`, description: null });
+  quiz = await database.organizers.addQuestion(ownerId, quiz.id, { prompt: "Pergunta 1", durationSeconds: 5, basePoints: 1000, explanation: null, options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: false }] });
+  quiz = await database.organizers.addQuestion(ownerId, quiz.id, { prompt: "Pergunta 2", durationSeconds: 5, basePoints: 1000, explanation: null, options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: false }] });
   return database.organizers.publish(ownerId, quiz.id);
 }
 function nextRoom() {
@@ -174,6 +180,31 @@ test("jogador que reconecta em outro socket não perde a participação e ainda 
   const answer = await command(secondSocket, EVENTS.GAME_ANSWER, { roomNumber: ROOM, questionId: resumed.data.match.question.id, optionId: resumed.data.match.question.options[0].id });
   expect(answer.ok).toBe(true);
 });
+
+test("uma partida abandonada avança e termina sozinha depois de um tempo sem interação", async () => {
+  const { database, port } = await instance({ resultAdvanceMs: 300 });
+  const ROOM = nextRoom();
+  const host = await account(database, "Abandonado");
+  const quiz = await twoQuestionQuizWithShortRounds(database, host.user.id);
+  const hostSocket = await connect(port, host.token);
+  expect((await command(hostSocket, EVENTS.ROOM_ENTER, { roomNumber: ROOM })).ok).toBe(true);
+  await command(hostSocket, EVENTS.THEME_SELECT, { roomNumber: ROOM, quizId: quiz.id });
+
+  const stateUpdates = [];
+  hostSocket.on(EVENTS.GAME_STATE, (state) => stateUpdates.push(state));
+  const started = await command(hostSocket, EVENTS.MATCH_START, { roomNumber: ROOM });
+  expect(started.ok).toBe(true);
+  expect(started.data.match.round).toBe(1);
+
+  // Nobody answers and nobody ever clicks "Avançar": the question's own
+  // deadline (5s) moves it to QUESTION_RESULT, then the idle timer (300ms)
+  // advances to round 2, then the same idle timer finishes the match.
+  await new Promise((resolve) => setTimeout(resolve, 6000));
+  expect(stateUpdates.some((state) => state.phase === "QUESTION" && state.round === 2)).toBe(true);
+
+  await new Promise((resolve) => setTimeout(resolve, 6000));
+  expect((await database.rooms.get(ROOM)).status).toBe("OPEN");
+}, 20000);
 
 test("iniciar sem tema falha com QUIZ_NOT_PUBLISHED e iniciar uma sala já em partida falha com ROOM_NOT_WAITING", async () => {
   const { database, port } = await instance();

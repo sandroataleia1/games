@@ -4,7 +4,7 @@ export function sessionRepository(db) {
     create: (data) => db.gameSession.create({ data }),
     get: (id) => db.gameSession.findUnique({ where: { id }, include }),
     byCode: (roomCode) => db.gameSession.findUnique({ where: { roomCode }, include }),
-    activeMatches: () => db.gameSession.findMany({ where: { status: "ACTIVE", matchPhase: "QUESTION" }, include }),
+    activeMatches: () => db.gameSession.findMany({ where: { status: "ACTIVE", matchPhase: { in: ["QUESTION", "QUESTION_RESULT"] } }, include }),
     countParticipants: (gameSessionId) => db.participant.count({ where: { gameSessionId } }),
     activeParticipants: (gameSessionId) => db.participant.count({ where: { gameSessionId, disconnectedAt: null } }),
     addParticipant: (data) => db.participant.create({ data }),

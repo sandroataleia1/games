@@ -5,6 +5,7 @@ import { DomainError } from "@quizarena/database";
 import { EVENTS, lobbySchemas, publicRoomSchema, publicMatchStateSchema } from "@quizarena/contracts";
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 6;
+const DEFAULT_RESULT_ADVANCE_MS = 45000;
 const GAME_LOCK_TTL_MS = 120000;
 const RATE_LIMITS = Object.freeze({ enter: [20, 60], resume: [10, 60], command: [60, 60] });
 const INDEX_CHANNEL = "rooms:index";
@@ -34,7 +35,7 @@ function publicQuestion(session) {
   return { id: question.id, prompt: question.prompt, options: question.options.map(({ id, position, text }) => ({ id, position, text })), round: session.currentQuestionIndex + 1, totalRounds: session.quizSnapshot.questions.length, durationSeconds: question.durationSeconds, startedAt: session.questionStartedAt.toISOString(), endsAt: session.questionEndsAt.toISOString(), phase: "QUESTION" };
 }
 
-export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAULT_TTL_SECONDS, rateLimitPrefix = "quizarena:lobby:rate", logger = console }) {
+export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAULT_TTL_SECONDS, resultAdvanceMs = DEFAULT_RESULT_ADVANCE_MS, rateLimitPrefix = "quizarena:lobby:rate", logger = console }) {
   const publisher = createClient({ url: redisUrl, disableOfflineQueue: true });
   const subscriber = publisher.duplicate();
   let ready = false;
@@ -53,7 +54,9 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     for (const session of matches) {
       if (!session.roomId) continue;
       const room = await database.rooms.getById(session.roomId).catch(() => null);
-      if (room) scheduleQuestion(room.number, session.id, session.questionEndsAt);
+      if (!room) continue;
+      if (session.matchPhase === "QUESTION") scheduleQuestion(room.number, session.id, session.questionEndsAt);
+      else if (session.matchPhase === "QUESTION_RESULT") scheduleResultAdvance(room.number, session.id);
     }
   }
   async function ensureReady() {
@@ -135,12 +138,45 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     }
     io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
     await publishMatch(roomNumber, sessionId);
+    // Nobody may ever click "Avançar" (disconnected, distracted); force the
+    // match forward after a grace period instead of leaving the room PLAYING
+    // against a session that will never progress on its own.
+    scheduleResultAdvance(roomNumber, sessionId);
   }
   function scheduleQuestion(roomNumber, sessionId, endsAt) {
     const previous = timers.get(sessionId);
     if (previous) clearTimeout(previous);
     const endsAtMs = endsAt instanceof Date ? endsAt.getTime() : new Date(endsAt).getTime();
     timers.set(sessionId, setTimeout(() => finishQuestion(roomNumber, sessionId).catch((error) => logger.error(`[lobby] timer: ${mapError(error)}`)), Math.max(10, endsAtMs - Date.now())));
+  }
+  function scheduleResultAdvance(roomNumber, sessionId) {
+    const previous = timers.get(sessionId);
+    if (previous) clearTimeout(previous);
+    timers.set(sessionId, setTimeout(() => advanceMatch(roomNumber, sessionId).catch((error) => logger.error(`[lobby] result timer: ${mapError(error)}`)), resultAdvanceMs));
+  }
+  async function advanceMatch(roomNumber, sessionId) {
+    const session = await database.sessions.getById(sessionId);
+    const round = session.currentQuestionIndex + 1;
+    const locked = await withLock(publisher, gameLockKey(sessionId, round), GAME_LOCK_TTL_MS, async () => {
+      const current = await database.sessions.getById(sessionId);
+      if (current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
+      return database.sessions.nextQuestion(sessionId);
+    });
+    if (!locked.acquired) throw new DomainError("INVALID_STATE");
+    const next = locked.value;
+    if (next.finished) {
+      const ranking = next.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
+      const previous = timers.get(sessionId);
+      if (previous) { clearTimeout(previous); timers.delete(sessionId); }
+      io.to(channel(roomNumber)).emit(EVENTS.GAME_FINISHED, { ranking });
+      io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
+      await database.rooms.reopen(session.roomId);
+      await broadcastRoom(roomNumber);
+      await broadcastIndex();
+      return { finished: true, ranking };
+    }
+    scheduleQuestion(roomNumber, sessionId, next.session.questionEndsAt);
+    return { finished: false, match: await publishMatch(roomNumber, sessionId) };
   }
   function claimMembership(roomNumber, accountId, socket) {
     const key = memberKey(roomNumber, accountId);
@@ -266,29 +302,9 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     const parsed = lobbySchemas.gameNext.safeParse(payload);
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!(await ensurePlayer(socket, parsed.data.roomNumber))) throw new DomainError("UNAUTHORIZED");
-    const roomNumber = parsed.data.roomNumber;
-    const sessionId = socket.data.player.gameSessionId;
-    const session = await database.sessions.getById(sessionId);
-    const round = session.currentQuestionIndex + 1;
-    const locked = await withLock(publisher, gameLockKey(sessionId, round), GAME_LOCK_TTL_MS, async () => {
-      const current = await database.sessions.getById(sessionId);
-      if (current.matchPhase !== "QUESTION_RESULT") throw new DomainError("INVALID_STATE");
-      return database.sessions.nextQuestion(sessionId);
-    });
-    if (!locked.acquired) throw new DomainError("INVALID_STATE");
-    const next = locked.value;
-    if (next.finished) {
-      const ranking = next.ranking.map(({ id, displayName, score }) => ({ id, displayName, score }));
-      io.to(channel(roomNumber)).emit(EVENTS.GAME_FINISHED, { ranking });
-      io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
-      await database.rooms.reopen(session.roomId);
-      socket.data.player = null;
-      await broadcastRoom(roomNumber);
-      await broadcastIndex();
-      return ackOk({ finished: true, ranking });
-    }
-    scheduleQuestion(roomNumber, sessionId, next.session.questionEndsAt);
-    return ackOk({ finished: false, match: await publishMatch(roomNumber, sessionId) });
+    const result = await advanceMatch(parsed.data.roomNumber, socket.data.player.gameSessionId);
+    if (result.finished) socket.data.player = null;
+    return ackOk(result);
   }
   function bindCommand(socket, event, handler) {
     socket.on(event, async (payload, acknowledge) => {
