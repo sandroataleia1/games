@@ -5,7 +5,7 @@ import Link from "next/link";
 import styles from "./portal-carousel.module.css";
 import { wrapIndex } from "../lib/carousel-index";
 
-const AUTOPLAY_MS = 7000;
+const AUTOPLAY_MS = 5000;
 
 function ClockIcon(props) {
   return (

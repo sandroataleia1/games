@@ -15,20 +15,20 @@ try {
   await page.locator('[aria-roledescription="carousel"]').waitFor();
   await page.getByRole("heading", { name: "Mais jogados" }).waitFor();
   await page.getByRole("heading", { name: "Jogos recentes" }).waitFor();
-  await page.getByRole("heading", { name: "Quiz", exact: true }).first().waitFor();
+  await page.getByRole("link", { name: "Abrir detalhes de Quiz" }).first().waitFor();
   await page.getByRole("link", { name: "Entrar", exact: true }).waitFor();
   await page.getByRole("link", { name: "Criar conta" }).first().waitFor();
-  await page.getByRole("link", { name: "Todos os jogos" }).waitFor();
+  await page.getByRole("link", { name: /todos os jogos/i }).waitFor();
 
   // Visitante que tenta jogar é encaminhado ao fluxo de autenticação do Quiz.
-  await page.getByRole("link", { name: "Jogar" }).first().click();
+  await page.getByRole("link", { name: "Abrir detalhes de Quiz" }).first().click();
   await page.waitForURL("**/jogos/quiz");
   await page.getByText("necessário ter uma conta", { exact: false }).waitFor();
 
   // /jogos: catálogo completo acessível diretamente.
   await page.goto(base + "/jogos");
   await page.getByRole("heading", { name: "Todos os jogos" }).waitFor();
-  await page.getByRole("heading", { name: "Quiz", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Abrir detalhes de Quiz" }).waitFor();
   await page.getByText("Disponível", { exact: true }).waitFor();
 
   // Cadastro e retorno.

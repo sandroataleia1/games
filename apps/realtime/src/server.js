@@ -23,7 +23,7 @@ export function createRealtimeServer({
 }) {
   const httpServer = http.createServer(createApp({ healthChecker, webOrigin, database, production, rateLimiter, trustProxy }));
   const io = new Server(httpServer, {
-    cors: { origin: webOrigin, credentials: true },
+    cors: { origin: String(webOrigin).split(",").map((origin) => origin.trim()).filter(Boolean), credentials: true },
     maxHttpBufferSize: 16 * 1024,
   });
   if (database) io.use(async (socket, next) => { try { socket.data.organizer = await database.organizers.authenticate(cookieValue(socket.request.headers.cookie)); next(); } catch { next(); } });
@@ -71,7 +71,8 @@ export async function start() {
   for (const name of ["WEB_ORIGIN", "DATABASE_URL", "REDIS_URL"]) {
     if (!process.env[name])
       throw new Error(`Variável obrigatória ausente: ${name}`);
-    new URL(process.env[name]);
+    if (name === "WEB_ORIGIN") process.env[name].split(",").forEach((origin) => new URL(origin.trim()));
+    else new URL(process.env[name]);
   }
   const dependencies = createDependencyChecks({
     databaseUrl: process.env.DATABASE_URL,

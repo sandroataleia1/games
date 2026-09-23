@@ -10,22 +10,23 @@ import { homeMetadata } from "./home-metadata";
 export const metadata = homeMetadata;
 
 export default function Home() {
-  const mostPlayed = listMostPlayedGames();
+  // No durable per-game metrics exist yet (PLATFORM-07B+ must supply them -
+  // see docs/ADR-007); an empty list here is what makes listMostPlayedGames
+  // fall back to its documented single-game rule instead of a guess.
+  const mostPlayed = listMostPlayedGames([]);
   const recent = listRecentGames();
 
   return (
     <div className={styles.page}>
       <SiteHeader />
-      <h1 className={styles.srOnly}>MultyGames — jogos para curtir sozinho ou com a turma</h1>
-
       <PortalCarousel slides={portalSlides} />
+
+      <div className={styles.allGames}>
+        <Link className={styles.allGamesButton} href="/jogos">Ver todos os jogos</Link>
+      </div>
 
       <GameSection id="mais-jogados" title="Mais jogados" modules={mostPlayed} variant="compact" />
       <GameSection id="jogos-recentes" title="Jogos recentes" modules={recent} variant="compact" />
-
-      <div className={styles.allGames}>
-        <Link className={styles.allGamesButton} href="/jogos">Todos os jogos</Link>
-      </div>
 
       <footer className={styles.footer}>
         <span>MultyGames — Jogos para curtir sozinho ou com a turma.</span>

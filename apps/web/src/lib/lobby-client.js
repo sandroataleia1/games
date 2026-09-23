@@ -2,7 +2,11 @@ import { io } from "socket.io-client";
 import { EVENTS, systemPongSchema } from "@quizarena/contracts";
 
 export function createLobbyClient({ onStatusChange, onStateChange, onQuestionResult, onFinished, onRoomIndex, onParticipantJoined, onParticipantLeft } = {}) {
-  const socket = io(process.env.NEXT_PUBLIC_REALTIME_URL, { autoConnect: false, reconnection: true, withCredentials: true });
+  const configuredUrl = process.env.NEXT_PUBLIC_REALTIME_URL;
+  const realtimeUrl = typeof window !== "undefined" && configuredUrl?.includes("localhost")
+    ? configuredUrl.replace("localhost", window.location.hostname)
+    : configuredUrl;
+  const socket = io(realtimeUrl, { autoConnect: false, reconnection: true, withCredentials: true });
   const update = (status) => onStatusChange?.(status);
   socket.on("connect", () => {
     update("connecting");

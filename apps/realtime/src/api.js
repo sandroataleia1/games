@@ -8,13 +8,14 @@ const errorBody = (error) => ({ ok: false, error: { code: error instanceof Domai
 const wrap = (handler) => async (request, response) => { try { await handler(request, response); } catch (error) { const code = error instanceof DomainError ? error.code : "INTERNAL_ERROR"; if (code === "RATE_LIMITED") response.set("Retry-After", String(error.details?.retryAfter ?? 1)); response.status(code === "INTERNAL_ERROR" ? 500 : statusFor(code)).json(errorBody(error)); } };
 
 export function installApi(app, { database, webOrigin, production = false, rateLimiter }) {
+  const allowedOrigins = Array.isArray(webOrigin) ? webOrigin : [webOrigin];
   async function limited(request) {
     if (!rateLimiter) throw new DomainError("COORDINATION_UNAVAILABLE");
     await rateLimiter.consume("auth-ip", normalizeIp(request.ip));
     const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "missing";
     await rateLimiter.consume("auth-email", email);
   }
-  function mutation(request, _response, next) { if (request.headers.origin !== webOrigin) return next(new DomainError("INVALID_ORIGIN")); if (!request.is("application/json")) return next(new DomainError("INVALID_CONTENT_TYPE")); next(); }
+  function mutation(request, _response, next) { if (!allowedOrigins.includes(request.headers.origin)) return next(new DomainError("INVALID_ORIGIN")); if (!request.is("application/json")) return next(new DomainError("INVALID_CONTENT_TYPE")); next(); }
   async function auth(request, _response, next) { try { const user = await database.organizers.authenticate(cookieValue(request.headers.cookie)); if (!user) throw new DomainError("UNAUTHENTICATED"); request.user = user; next(); } catch (error) { next(error); } }
   function setSession(response, result) { response.cookie(SESSION_COOKIE, result.token, { httpOnly: true, sameSite: "lax", secure: production, path: "/", expires: result.expiresAt }); }
   app.post("/api/auth/register", mutation, wrap(async (req, res) => { await limited(req); const result = await database.organizers.register(req.body); setSession(res, result); res.status(201).json({ ok: true, data: { user: result.user } }); }));

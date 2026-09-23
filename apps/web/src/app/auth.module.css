@@ -15,7 +15,7 @@
   border: 1px solid color-mix(in srgb, var(--violet) 22%, var(--line));
   border-radius: 24px;
   padding: 32px;
-  box-shadow: 0 30px 80px -30px #000a, 0 0 0 1px #ffffff08 inset;
+  box-shadow: none;
   animation: cardIn 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 .card h1 {
@@ -47,8 +47,8 @@
   min-height: 48px;
   padding: 11px 13px;
   color: var(--ink);
-  background: #171222;
-  border: 1px solid #4a3f66;
+  background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 12px;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -65,7 +65,7 @@
   background: linear-gradient(135deg, var(--lime), color-mix(in srgb, var(--lime) 70%, var(--cyan)));
   color: #16221a;
   font-weight: 800;
-  box-shadow: 0 5px 0 #6f9a2f, 0 12px 24px -8px color-mix(in srgb, var(--lime) 55%, transparent);
+  box-shadow: none;
   transition: transform 0.15s ease, filter 0.15s ease;
 }
 .button:hover:not(:disabled) {

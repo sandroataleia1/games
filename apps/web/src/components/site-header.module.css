@@ -69,7 +69,7 @@
   text-decoration: none;
   background: linear-gradient(135deg, var(--lime), color-mix(in srgb, var(--lime) 70%, var(--cyan)));
   color: #16221a;
-  box-shadow: 0 4px 0 #6f9a2f;
+  box-shadow: none;
   transition: transform 0.15s ease, filter 0.15s ease;
 }
 .cta:hover {
@@ -83,11 +83,29 @@
 @media (max-width: 640px) {
   .header {
     padding: 14px 16px;
+    gap: 8px;
   }
   .nav {
-    gap: 10px;
+    gap: 8px;
+    min-width: 0;
   }
   .accountName {
     display: none;
+  }
+  .cta {
+    min-height: 36px;
+    padding: 7px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 420px) {
+  .brandName {
+    display: none;
+  }
+  .nav a:not(.cta),
+  .nav button {
+    font-size: 13px;
   }
 }

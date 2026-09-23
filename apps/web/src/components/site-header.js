@@ -28,8 +28,7 @@ export function SiteHeader() {
         <span className={styles.brandName}>MultyGames</span>
       </Link>
       <nav className={styles.nav} aria-label="Principal">
-        <Link href="/jogos">Jogos</Link>
-        {!checked ? null : user ? (
+        {checked && user ? (
           <>
             <span className={styles.accountName}>Olá, {user.name}</span>
             <Link href="/painel">Meu painel</Link>
