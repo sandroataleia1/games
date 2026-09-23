@@ -4,6 +4,7 @@ import { chromium } from "@playwright/test";
 const executablePath = process.env.PLAYWRIGHT_EXECUTABLE_PATH;
 const browser = await chromium.launch({ headless: true, executablePath });
 const base = process.env.SMOKE_BASE_URL || "http://localhost:3000";
+const room = Number(process.env.SMOKE_ROOM || 1);
 const stamp = Date.now();
 
 async function overflowCheck(page, path) {
@@ -41,7 +42,7 @@ try {
   await hostPage.getByLabel("Confirmar senha").fill(hostPassword);
   await hostPage.getByRole("button", { name: "Criar conta" }).click();
   await hostPage.waitForURL("**/jogos/quiz");
-  await hostPage.getByRole("heading", { name: "Sala 1", exact: true }).waitFor();
+  await hostPage.getByRole("heading", { name: `Sala ${room}`, exact: true }).waitFor();
   const roomCards = await hostPage.locator("article").count();
   if (roomCards < 10) throw new Error(`expected the fixed room pool, found only ${roomCards} cards`);
   await hostPage.getByText("Aberta", { exact: true }).first().waitFor();
@@ -65,11 +66,9 @@ try {
   await hostPage.getByRole("button", { name: "Publicar" }).click();
   await hostPage.getByText("PUBLISHED", { exact: false }).waitFor();
 
-  // Enter room 1, pick the theme, and confirm the room number/status/player-count card updates live.
-  await hostPage.goto(base + "/jogos/quiz");
-  await hostPage.getByRole("link", { name: "Entrar" }).first().click();
-  await hostPage.waitForURL("**/salas/1");
-  await hostPage.getByRole("heading", { name: "1", exact: true }).waitFor();
+  // Enter the room, pick the theme, and confirm the room number/status/player-count card updates live.
+  await hostPage.goto(base + `/salas/${room}`);
+  await hostPage.getByRole("heading", { name: String(room), exact: true }).waitFor();
   await pickTheme(hostPage, quizTitle);
   await hostPage.getByText("Anfitriã Salas").waitFor();
 
@@ -91,12 +90,11 @@ try {
   // Leaving after FINISHED must not crash, and the room card must show OPEN again.
   await hostPage.getByRole("button", { name: "Sair da sala" }).click();
   await hostPage.waitForURL("**/jogos/quiz");
-  await hostPage.getByRole("heading", { name: "Sala 1", exact: true }).waitFor();
+  await hostPage.getByRole("heading", { name: `Sala ${room}`, exact: true }).waitFor();
 
   // Leaving mid-match while playing solo must finish the match, not leave the room stuck PLAYING.
-  // Room 1 still has its theme from before (reopening a room keeps the theme).
-  await hostPage.getByRole("link", { name: "Entrar" }).first().click();
-  await hostPage.waitForURL("**/salas/1");
+  // The room still has its theme from before (reopening a room keeps the theme).
+  await hostPage.goto(base + `/salas/${room}`);
   await hostPage.getByRole("button", { name: "Iniciar partida" }).click();
   await hostPage.getByText("Pergunta única").waitFor();
   await hostPage.getByRole("button", { name: "Sair da sala" }).click();
@@ -111,11 +109,11 @@ try {
   await guestPage.getByLabel("Confirmar senha").fill(guestPassword);
   await guestPage.getByRole("button", { name: "Criar conta" }).click();
   await guestPage.waitForURL("**/jogos/quiz");
-  await guestPage.goto(base + "/salas/1");
-  await guestPage.getByRole("heading", { name: "1", exact: true }).waitFor();
+  await guestPage.goto(base + `/salas/${room}`);
+  await guestPage.getByRole("heading", { name: String(room), exact: true }).waitFor();
   await guestPage.getByText("Convidada Salas").waitFor();
 
-  await hostPage.goto(base + "/salas/1");
+  await hostPage.goto(base + `/salas/${room}`);
   await hostPage.getByText("Convidada Salas").waitFor();
   await pickTheme(hostPage, quizTitle);
   await hostPage.getByRole("button", { name: "Iniciar partida" }).click();
@@ -130,7 +128,7 @@ try {
   await hostPage.getByRole("button", { name: "Sair da sala" }).click();
 
   // Responsividade: sem overflow horizontal nas páginas novas.
-  const pagesToCheck = ["/jogos/quiz", "/salas/1"];
+  const pagesToCheck = ["/jogos/quiz", `/salas/${room}`];
   for (const width of [320, 390, 768, 1440]) {
     await hostPage.setViewportSize({ width, height: 900 });
     for (const path of pagesToCheck) {
