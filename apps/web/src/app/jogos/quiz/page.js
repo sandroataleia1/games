@@ -45,7 +45,7 @@ export default function QuizGame() {
       <main className={styles.shell}>
         <section className={styles.board} aria-labelledby="quiz-title">
           <header className={styles.header}>
-            <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>MultyGames</span></div>
+            <div className={styles.brand}><span className={styles.mark} aria-hidden="true">M</span><span>MultyGames</span></div>
             <nav className={styles.navLinks}><Link href="/">Início</Link></nav>
           </header>
           <div className={styles.intro}>
@@ -74,7 +74,7 @@ export default function QuizGame() {
     <main className={styles.shell}>
       <section className={styles.board} aria-labelledby="quiz-title">
         <header className={styles.header}>
-          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>MultyGames / Quiz</span></div>
+          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">M</span><span>MultyGames / Quiz</span></div>
           <div role="status" aria-live="polite" className={`${styles.status} ${styles[status]}`}>
             <span className={styles.statusDot} aria-hidden="true" />
             {status === "connected" ? "Servidor conectado" : status === "reconnecting" ? "Reconectando" : "Conectando"}
