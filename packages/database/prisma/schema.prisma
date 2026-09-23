@@ -56,6 +56,8 @@ model Quiz {
   questions   Question[]
   sessions    GameSession[]
   rooms       Room[]
+  roomConfigurations QuizRoomConfiguration[]
+  matchStates QuizMatchState[]
 
   @@index([status])
   @@index([ownerId, updatedAt])
@@ -71,7 +73,7 @@ model Organizer {
   quizzes      Quiz[]
   sessions     OrganizerSession[]
   hostedGames  GameSession[]
-  participations Participant[]
+  participations QuizParticipantState[]
   matchParticipations MatchParticipant[]
 
   @@unique([email])
@@ -134,6 +136,7 @@ model Room {
   quiz          Quiz? @relation(fields: [quizId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   currentSession GameSession? @relation("RoomCurrentSession", fields: [currentSessionId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   sessions      GameSession[] @relation("RoomSessions")
+  quizConfiguration QuizRoomConfiguration?
 
   @@unique([id, gameKey])
   @@index([gameKey, number])
@@ -144,8 +147,8 @@ model GameSession {
   roomCode      String @unique
   roomId        String? @db.Uuid
   // The match's game, always equal to its room's gameKey when it has a
-  // room (composite FK (roomId, gameKey) -> Room(id, gameKey), raw SQL in
-  // the migration). Stored here because legacy hosted matches have no room.
+  // room (composite FK (roomId, gameKey) -> Room(id, gameKey)). Stored here
+  // because legacy hosted matches have no room.
   gameKey       String
   // Legacy Quiz state kept on the match row: quizId, quizSnapshot, matchPhase,
   // currentQuestionIndex, questionStartedAt, questionEndsAt. Nullable so other
@@ -166,16 +169,18 @@ model GameSession {
   cancelledAt   DateTime? @db.Timestamptz(3)
   quiz          Quiz? @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   host          Organizer? @relation(fields: [hostUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  room          Room? @relation("RoomSessions", fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  room          Room? @relation("RoomSessions", fields: [roomId, gameKey], references: [id, gameKey], onDelete: Restrict, onUpdate: Restrict)
   currentForRoom Room? @relation("RoomCurrentSession")
-  participants  Participant[]
+  participants  QuizParticipantState[]
   matchParticipants MatchParticipant[]
+  quizState     QuizMatchState?
   answers       Answer[]
 
   @@index([status, createdAt])
   @@index([quizId])
   @@index([quizId, visibility, status])
   @@index([roomId])
+  @@unique([id, gameKey])
   @@index([gameKey, status])
 }
 
@@ -193,14 +198,14 @@ model MatchParticipant {
   leftAt        DateTime? @db.Timestamptz(3)
   gameSession   GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   user          Organizer? @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  quizParticipant Participant?
+  quizParticipant QuizParticipantState?
 
   @@unique([gameSessionId, userId])
   @@unique([id, gameSessionId])
   @@index([userId])
 }
 
-model Participant {
+model QuizParticipantState {
   id                 String @id @default(uuid()) @db.Uuid
   gameSessionId      String @db.Uuid
   // Same id as its MatchParticipant; userId/joinedAt below are legacy copies
@@ -223,6 +228,7 @@ model Participant {
   @@unique([id, gameSessionId])
   @@unique([matchParticipantId, gameSessionId])
   @@index([gameSessionId, normalizedName])
+  @@map("Participant")
 }
 
 model Answer {
@@ -236,7 +242,47 @@ model Answer {
   pointsAwarded     Int
   answeredAt        DateTime @default(now()) @db.Timestamptz(3)
   gameSession       GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  participant       Participant @relation(fields: [participantId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict, onUpdate: Restrict)
+  participant       QuizParticipantState @relation(fields: [participantId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([gameSessionId, participantId, questionRef])
+}
+
+// ---- Quiz module persistence (PLATFORM-07C) --------------------------------
+// Owned by the Quiz module (packages/games/quiz). The platform never reads
+// these tables. Both carry a constant `gameKey` (CHECK = 'quiz', SQL-only) that
+// a composite FK ties to the room/match, so a non-Quiz room or match can never
+// have Quiz state. Room.quizId and GameSession.{quizId, quizSnapshot,
+// matchPhase, currentQuestionIndex, questionStartedAt, questionEndsAt} are
+// LEGACY mirrors kept only for rollout compatibility (ADR-009).
+
+model QuizRoomConfiguration {
+  roomId    String   @id @db.Uuid
+  gameKey   String   @default("quiz")
+  quizId    String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @default(now()) @updatedAt @db.Timestamptz(3)
+  room      Room     @relation(fields: [roomId, gameKey], references: [id, gameKey], onDelete: Cascade, onUpdate: Restrict)
+  quiz      Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([roomId, gameKey])
+  @@index([quizId])
+}
+
+model QuizMatchState {
+  matchId              String     @id @db.Uuid
+  gameKey              String     @default("quiz")
+  quizId               String     @db.Uuid
+  quizSnapshot         Json       @db.JsonB
+  matchPhase           MatchPhase @default(LOBBY)
+  currentQuestionIndex Int?
+  questionStartedAt    DateTime?  @db.Timestamptz(3)
+  questionEndsAt       DateTime?  @db.Timestamptz(3)
+  createdAt            DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime   @default(now()) @updatedAt @db.Timestamptz(3)
+  match                GameSession @relation(fields: [matchId, gameKey], references: [id, gameKey], onDelete: Restrict, onUpdate: Restrict)
+  quiz                 Quiz       @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([matchId, gameKey])
+  @@index([quizId])
+  @@index([matchPhase])
 }

@@ -78,7 +78,7 @@ pnpm.cmd exec playwright install chromium
 node scripts/smoke-web.js
 ```
 
-O smoke usa Chromium sem janela, verifica desktop/celular, botões desabilitados, navegação por teclado, estados online/offline e ausência de overflow; grava screenshots em `.local/`.
+O smoke usa Chromium sem janela e verifica, em três larguras, a home e o catálogo (HTTP 200, título, cartão do Quiz, ausência de overflow e de erros no console); grava screenshots em `.local/`. Outros scripts atuais: `browser-rooms.js` (salas, solo e multiplayer), `browser-reconnect.js` (reconexão real no meio da partida), `browser-authoring.js` (autoria de quizzes), `check-home-flow.js`, `check-platform-visitor.js`, `check-cors-origins.js`, `check-card-layout.js` e os de carrossel; `check-web-bundle.js` roda após o build.
 
 ## Problemas comuns no Windows
 

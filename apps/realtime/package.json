@@ -19,9 +19,12 @@
     "redis": "^5.8.2",
     "socket.io": "^4.8.1",
     "@quizarena/database": "workspace:*",
-    "@quizarena/game-quiz": "workspace:*"
+    "@multygames/server-bootstrap": "workspace:*"
   },
   "devDependencies": {
+    "@multygames/game-quiz": "workspace:*",
+    "@multygames/game-registry": "workspace:*",
+    "@multygames/game-runtime": "workspace:*",
     "eslint": "^9.39.5",
     "socket.io-client": "^4.8.1"
   }

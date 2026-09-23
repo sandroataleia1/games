@@ -11,9 +11,9 @@
   },
   "dependencies": {
     "@quizarena/contracts": "workspace:*",
-    "@quizarena/game-catalog": "workspace:*",
-    "@quizarena/game-quiz": "workspace:*",
-    "@quizarena/game-registry": "workspace:*",
+    "@multygames/game-catalog": "workspace:*",
+    "@multygames/game-quiz": "workspace:*",
+    "@multygames/game-registry": "workspace:*",
     "next": "16.3.5",
     "react": "19.2.8",
     "react-dom": "19.2.8",

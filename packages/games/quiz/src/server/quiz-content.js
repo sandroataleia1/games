@@ -4,17 +4,16 @@ import {
   questionInputSchema,
   quizStatusSchema,
 } from "@quizarena/contracts";
-import { quizRepository } from "../repositories/quizzes.js";
-import { transaction } from "../repositories/transaction.js";
-import { DomainError, parse } from "../errors/domain-error.js";
-import { snapshotFromQuiz } from "../mappers/snapshot.js";
+import { DomainError, parse, transaction } from "@quizarena/database";
+import { quizRepository } from "./quizzes-repository.js";
+import { snapshotFromQuiz } from "./snapshot.js";
 
 export async function requireQuiz(repository, id) {
   const quiz = await repository.get(parse(z.uuid(), id));
   if (!quiz) throw new DomainError("QUIZ_NOT_FOUND");
   return quiz;
 }
-export function createQuizService(client) {
+export function createQuizContent(client) {
   return {
     createDraft(input) {
       const { ownerId, ...quiz } = input;

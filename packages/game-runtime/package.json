@@ -1,0 +1,15 @@
+{
+  "name": "@multygames/game-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@multygames/game-registry": "workspace:*"
+  }
+}

@@ -1,7 +1,7 @@
-import { gameRegistry as registry } from "@quizarena/game-catalog";
+import { gameRegistry as registry } from "@multygames/game-catalog";
 import { selectMostPlayedGames, selectRecentGames } from "./game-discovery.js";
 
-// The registry is composed once, in @quizarena/game-catalog, and shared with
+// The registry is composed once, in @multygames/game-catalog, and shared with
 // the platform services - the portal never keeps its own list of games.
 
 // How many cards a discovery section shows once there are more games than

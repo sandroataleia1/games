@@ -16,9 +16,11 @@ Não há resultado, ranking, participante, partida ou snapshot no Redis. Leitura
 
 ## Recuperação após reinício
 
-1. `lobby.connect()` chama `database.platform.matches.recoverable()`.
-2. O serviço lê **apenas do PostgreSQL** as partidas `ACTIVE` com sala (`LIMIT 200`; há no máximo uma viva por sala — índice único parcial — e o pool é fixo).
-3. Para cada uma, resolve o adaptador do jogo pelo `gameKey` e chama `recoverMatch`. O Quiz responde `question-deadline` (rearmar o temporizador com `questionEndsAt`) ou `result-advance`. Partida de jogo sem adaptador é ignorada, nunca adivinhada.
-4. Presença não é recuperada: quem estava conectado reentra e a partida é retomada por `resumePresenceForAccount`.
+1. `lobby.connect()` (host genérico) chama `platform.matches.live({ limit: 200 })`.
+2. O serviço lê **apenas do PostgreSQL** as partidas `ACTIVE` com sala (há no máximo uma viva por sala — índice único parcial — e o pool é fixo). Não usa Redis nem `KEYS`.
+3. Para cada partida, o host resolve o **runtime** pelo `gameKey` e delega `runtime.realtime.recoverMatch({ match, room })`. O Quiz relê o **seu** estado (`QuizMatchState`: configuração, snapshot, progresso, respostas, pontuação) e rearma o temporizador da pergunta ou o avanço do resultado. Nunca reconstrói a partir das colunas legadas no caminho normal; se só existir a forma legada (instância antiga), ela é materializada uma vez, com aviso.
+4. **Erro isolado por partida**: se o runtime falhar ou não existir para aquele jogo, o host registra (`recovery of match … failed` / `no runtime for game …`) e segue para a próxima.
+5. Duas instâncias podem recuperar ao mesmo tempo: os temporizadores são idempotentes (lock por partida/rodada e fase relida dentro da seção crítica).
+6. Presença não é recuperada: quem estava conectado reentra e a partida é retomada por `resumePresenceForAccount`.
 
 Redis indisponível: os comandos do lobby falham fechados com `DEPENDENCY_UNAVAILABLE` (`/health` responde 503) e o estado do PostgreSQL não é tocado. Dois processos iniciando a mesma sala: um vence, o outro recebe `ROOM_NOT_WAITING`; o banco impede duas partidas vivas na mesma sala mesmo sem passar pelo serviço.

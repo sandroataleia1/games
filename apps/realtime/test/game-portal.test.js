@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
 import { createClient as createRedisClient } from "redis";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase as createDatabase } from "@multygames/server-bootstrap";
 import { createClient as createDatabaseClient } from "../../../packages/database/src/client.js";
 import { EVENTS } from "@quizarena/contracts";
 import { createRealtimeServer } from "../src/server.js";
@@ -18,9 +18,9 @@ const accountIds = [];
 const usedRooms = [];
 
 async function instance(options = {}) {
-  const database = createDatabase({ databaseUrl });
+  const database = createDatabase({ databaseUrl, ...options });
   const server = createRealtimeServer({ healthChecker: async () => ({ status: "ok" }), database });
-  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: `quizarena:test:rate:portal:${randomUUID()}`, ...options });
+  const lobby = createLobbyRuntime({ io: server.io, database, redisUrl, rateLimitPrefix: `quizarena:test:rate:portal:${randomUUID()}` });
   server.setLobby(lobby);
   await lobby.connect();
   await new Promise((resolve) => server.httpServer.listen(0, resolve));
@@ -265,9 +265,11 @@ afterAll(async () => {
       const sessions = await cleanup.gameSession.findMany({ where: { roomId: room.id }, select: { id: true } });
       const sessionIds = sessions.map((s) => s.id);
       await cleanup.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
-      await cleanup.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+      await cleanup.quizParticipantState.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
       await cleanup.matchParticipant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
       await cleanup.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
+      await cleanup.quizRoomConfiguration.deleteMany({ where: { roomId: room.id } });
+      await cleanup.quizMatchState.deleteMany({ where: { matchId: { in: sessionIds } } });
       await cleanup.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
     }
   }

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase as createDatabase } from "@multygames/server-bootstrap";
 import { EVENTS } from "@quizarena/contracts";
 import { createRealtimeServer } from "../src/server.js";
 import { createLobbyRuntime } from "../src/lobby.js";
@@ -99,9 +99,11 @@ afterAll(async () => {
     const sessions = await client.gameSession.findMany({ where: { roomId: room.id }, select: { id: true } });
     const sessionIds = sessions.map((s) => s.id);
     await client.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
-    await client.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+    await client.quizParticipantState.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.matchParticipant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
+    await client.quizRoomConfiguration.deleteMany({ where: { roomId: room.id } });
+    await client.quizMatchState.deleteMany({ where: { matchId: { in: sessionIds } } });
     await client.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
   }
   if (playerAccountId) { await client.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await client.organizer.delete({ where: { id: playerAccountId } }); }

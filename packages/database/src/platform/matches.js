@@ -2,8 +2,6 @@ import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { parse, DomainError } from "../errors/domain-error.js";
 import { transaction } from "../repositories/transaction.js";
-import { sessionRepository } from "../repositories/sessions.js";
-import { sessionDTO } from "../mappers/snapshot.js";
 import { roomDTO } from "./rooms.js";
 
 const displayNameSchema = z
@@ -14,16 +12,38 @@ const displayNameSchema = z
   .max(60)
   .refine((value) => !Array.from(value).some((character) => { const code = character.codePointAt(0); return code <= 31 || (code >= 127 && code <= 159); }), "INVALID_NAME");
 const participantsSchema = z.array(z.object({ userId: z.uuid(), displayName: z.unknown() })).min(1).max(100);
+const include = { matchParticipants: { orderBy: [{ joinedAt: "asc" }, { id: "asc" }] } };
+
+// Generic match DTO: platform fields only. Whatever a game keeps about its
+// match (snapshot, phase, scores...) is served by the game itself.
+export function matchDTO(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    roomCode: row.roomCode,
+    roomId: row.roomId,
+    gameKey: row.gameKey,
+    status: row.status,
+    hostUserId: row.hostUserId,
+    visibility: row.visibility,
+    createdAt: row.createdAt,
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    cancelledAt: row.cancelledAt,
+    participants: (row.matchParticipants ?? []).map(({ id, userId, joinedAt, leftAt }) => ({ id, userId, joinedAt, leftAt })),
+  };
+}
 
 // Match = one execution of a room's game. The platform decides *whether* a
-// match can start (room open, game available, adapter registered, nobody else
-// starting one) and records who plays; the game's adapter supplies everything
-// game-specific. No branch here ever looks at which game it is.
-export function createPlatformMatches({ client, policy, adapters, rooms, participants }) {
-  function requireAdapter(gameKey) {
-    const adapter = adapters.get(gameKey);
-    if (!adapter) throw new DomainError("GAME_ADAPTER_MISSING");
-    return adapter;
+// match can start (room open, game available, runtime registered, nobody else
+// starting one) and records who plays; the game's runtime supplies everything
+// game-specific through its persistence hooks. No branch here ever looks at
+// which game it is.
+export function createPlatformMatches({ client, policy, runtimes, rooms, participants }) {
+  function requireRuntime(gameKey) {
+    const runtime = runtimes.get(gameKey);
+    if (!runtime) throw new DomainError("GAME_ADAPTER_MISSING");
+    return runtime;
   }
   return {
     async start(roomNumber, presentParticipants) {
@@ -32,42 +52,55 @@ export function createPlatformMatches({ client, policy, adapters, rooms, partici
         const room = await tx.room.findUnique({ where: { number: roomNumber } });
         if (!room) throw new DomainError("ROOM_NOT_FOUND");
         policy.requireAvailable(room.gameKey);
-        const adapter = requireAdapter(room.gameKey);
+        const { persistence } = requireRuntime(room.gameKey);
         if (room.status !== "OPEN" || room.currentSessionId) throw new DomainError("ROOM_NOT_WAITING");
-        const { columns } = await adapter.prepareMatch({ tx, room });
+        // `compatColumns` is opaque to the platform: columns a game still
+        // mirrors on the match row while an older release may be running.
+        const { prepared, compatColumns = {} } = await persistence.prepareMatch({ tx, room });
         // Presence lives in Redis with a safety-net TTL, so an entry can outlive
         // its account. Materialize participants only for accounts that still
         // exist rather than failing the whole start on one stale entry.
         const knownAccounts = new Set((await tx.organizer.findMany({ where: { id: { in: parsedParticipants.map((p) => p.userId) } }, select: { id: true } })).map((row) => row.id));
         const roomCode = randomBytes(6).toString("hex").toUpperCase();
-        const match = await tx.gameSession.create({ data: { roomCode, roomId: room.id, gameKey: room.gameKey, ...columns } });
+        const match = await tx.gameSession.create({ data: { roomCode, roomId: room.id, gameKey: room.gameKey, ...compatColumns } });
+        await persistence.createMatchState({ tx, match, prepared });
         const seen = new Set();
         for (const entry of parsedParticipants) {
           if (seen.has(entry.userId) || !knownAccounts.has(entry.userId)) continue;
           seen.add(entry.userId);
           const displayName = parse(displayNameSchema, entry.displayName, "PARTICIPANT_INVALID").replace(/\s+/gu, " ");
           const matchParticipant = await participants.add(tx, { matchId: match.id, userId: entry.userId });
-          await adapter.createParticipantState({ tx, match, matchParticipant, displayName });
+          await persistence.createParticipantState({ tx, match, matchParticipant, displayName });
         }
         if (seen.size === 0) throw new DomainError("NO_PARTICIPANTS");
         await rooms.occupy(tx, room.id, match.id);
-        return sessionDTO(await sessionRepository(tx).get(match.id));
+        return matchDTO(await tx.gameSession.findUnique({ where: { id: match.id }, include }));
       }, "ROOM_NOT_WAITING");
     },
-    // Live matches that survive a restart, each with what the game says still
-    // needs doing. PostgreSQL is the only input; Redis is not consulted.
-    async recoverable() {
-      const live = await sessionRepository(client).liveMatches();
-      const recovered = [];
-      for (const match of live) {
-        const adapter = adapters.get(match.gameKey);
-        if (!adapter) continue;
-        const room = await client.room.findUnique({ where: { id: match.roomId }, include: { quiz: { select: { id: true, title: true } } } });
-        if (!room) continue;
-        const recovery = adapter.recoverMatch({ match });
-        if (recovery) recovered.push({ match: sessionDTO(match), room: roomDTO(room), recovery });
+    async get(id, db = client) {
+      const row = await db.gameSession.findUnique({ where: { id: parse(z.uuid(), id, "SESSION_NOT_FOUND") }, include });
+      if (!row) throw new DomainError("SESSION_NOT_FOUND");
+      return matchDTO(row);
+    },
+    // WAITING -> ACTIVE. Idempotent: an already started match is left alone.
+    async activate(db, id) {
+      await db.gameSession.updateMany({ where: { id, status: "WAITING" }, data: { status: "ACTIVE", startedAt: new Date() } });
+    },
+    // -> FINISHED. Idempotent: the first finish time is kept.
+    async finish(db, id) {
+      await db.gameSession.updateMany({ where: { id, status: { not: "FINISHED" } }, data: { status: "FINISHED", finishedAt: new Date() } });
+    },
+    // Live matches that survive a restart. PostgreSQL is the only input; the
+    // limit is a safety net (there is at most one live match per room, and the
+    // room pool is fixed). What each game must rebuild is the game's business.
+    async live({ limit = 200 } = {}) {
+      const rows = await client.gameSession.findMany({ where: { status: "ACTIVE", roomId: { not: null } }, include, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: limit });
+      const found = [];
+      for (const row of rows) {
+        const room = await client.room.findUnique({ where: { id: row.roomId } });
+        if (room) found.push({ match: matchDTO(row), room: roomDTO(room) });
       }
-      return recovered;
+      return found;
     },
   };
 }

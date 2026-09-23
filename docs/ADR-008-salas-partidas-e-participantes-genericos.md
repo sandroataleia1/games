@@ -1,6 +1,6 @@
 # ADR-008 — Salas, partidas e participantes genéricos (PLATFORM-07B)
 
-Status: aceito. Continua o [ADR-006](ADR-006-multygames-fundacao-modular.md) (fundação modular) e o [ADR-007](ADR-007-banner-e-descoberta-de-jogos.md).
+Status: aceito. **Parcialmente superado pelo [ADR-009](ADR-009-isolamento-do-quiz-e-runtime-por-modalidade.md)**: o "adaptador de servidor" abaixo virou o *runtime* do jogo (`@multygames/game-runtime`), o código do Quiz saiu de `packages/database`, e a configuração/estado do Quiz têm tabelas próprias. Continua o [ADR-006](ADR-006-multygames-fundacao-modular.md) (fundação modular) e o [ADR-007](ADR-007-banner-e-descoberta-de-jogos.md).
 
 ## Contexto e inventário do modelo anterior
 
@@ -26,7 +26,7 @@ Ambiguidades encontradas: (1) "sessão" no código é a partida; (2) o pool de s
 GameDefinition (código)  →  Room  →  Match (GameSession)  →  MatchParticipant  →  estado do jogo
 ```
 
-- **GameDefinition** continua só no registro em código (`@quizarena/game-registry`). Não há tabela `Game` nem enum de banco: um jogo novo não exige migration.
+- **GameDefinition** continua só no registro em código (`@multygames/game-registry`). Não há tabela `Game` nem enum de banco: um jogo novo não exige migration.
 - **Room** é o ponto de encontro: número, `gameKey`, ocupação (`OPEN`/`PLAYING`) e `currentSessionId`. Uma sala recebe várias partidas ao longo do tempo (é o comportamento real do pool); uma por vez.
 - **Match** é uma execução. Ciclo próprio (`GameSessionStatus`: `WAITING/ACTIVE/FINISHED/CANCELLED`), distinto do ciclo de ocupação da sala. `GameSession` **é** a tabela de partida — não foi renomeada para evitar migração destrutiva e renomeação em massa; o nome é legado.
 - **MatchParticipant** (nova) registra quem participou: `id`, `gameSessionId`, `userId`, `joinedAt`, `leftAt`. Nada de score, resposta, ranking ou payload.
@@ -41,7 +41,7 @@ GameDefinition (código)  →  Room  →  Match (GameSession)  →  MatchPartici
   - **registrada**: o registro conhece a chave → histórico legível;
   - **disponível**: registrada **e** `AVAILABLE` → só essas recebem sala ou partida nova (`GAME_UNAVAILABLE` caso contrário);
   - chave gravada porém não registrada → `GAME_UNKNOWN` nas operações; leituras seguem devolvendo a chave.
-- O registro é composto **uma vez** em `@quizarena/game-catalog` e usado pelo portal (web) e pela plataforma (database/realtime).
+- O registro é composto **uma vez** em `@multygames/game-catalog` e usado pelo portal (web) e pela plataforma (database/realtime).
 
 ### Adaptador de servidor
 

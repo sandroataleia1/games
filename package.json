@@ -16,15 +16,17 @@
     "lint": "eslint apps/realtime packages scripts vitest.config.js && pnpm --filter @quizarena/web lint",
     "test": "vitest run",
     "build": "pnpm --filter @quizarena/web build",
-    "check": "pnpm test && pnpm lint && pnpm build",
+    "check": "pnpm test && pnpm lint && pnpm build && node scripts/check-web-bundle.js && pnpm db:verify",
     "format:check": "prettier --check apps/realtime/src apps/realtime/test apps/web/src packages/contracts docs README.md",
     "db:generate": "pnpm --filter @quizarena/database db:generate",
     "db:migrate": "pnpm --filter @quizarena/database db:migrate",
-    "db:seed": "pnpm --filter @quizarena/database db:seed",
+    "db:seed": "pnpm --filter @multygames/server-bootstrap run seed",
+    "db:audit-quiz": "pnpm --filter @multygames/server-bootstrap run quiz-legacy-audit",
     "db:studio": "pnpm --filter @quizarena/database db:studio",
+    "db:verify": "pnpm --filter @quizarena/database db:verify",
     "db:test:prepare": "pnpm --filter @quizarena/database db:test:prepare",
-    "test:unit": "vitest run --exclude packages/database/test/postgres.test.js",
-    "test:integration": "vitest run packages/database/test/postgres.test.js"
+    "test:unit": "vitest run --exclude packages/server-bootstrap/test/postgres.test.js",
+    "test:integration": "vitest run packages/server-bootstrap/test/postgres.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

@@ -1,0 +1,27 @@
+{
+  "name": "@multygames/server-bootstrap",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./testing": "./src/testing.js"
+  },
+  "scripts": {
+    "seed": "node src/seed-cli.js",
+    "quiz-legacy-audit": "node src/audit-cli.js"
+  },
+  "dependencies": {
+    "@multygames/game-catalog": "workspace:*",
+    "@multygames/game-quiz": "workspace:*",
+    "@multygames/game-registry": "workspace:*",
+    "@multygames/game-runtime": "workspace:*",
+    "@quizarena/contracts": "workspace:*",
+    "@quizarena/database": "workspace:*",
+    "dotenv": "^17.2.2",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5"
+  }
+}

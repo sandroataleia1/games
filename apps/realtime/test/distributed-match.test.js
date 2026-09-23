@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as connectClient } from "socket.io-client";
 import { createClient as createRedisClient } from "redis";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase as createDatabase } from "@multygames/server-bootstrap";
 import { createClient as createDatabaseClient } from "../../../packages/database/src/client.js";
 import { EVENTS } from "@quizarena/contracts";
 import { createRealtimeServer } from "../src/server.js";
@@ -49,7 +49,10 @@ function waitFor(socket, event, predicate = () => true) {
 }
 async function shortenQuestion(sessionId, milliseconds = 250) {
   const client = createDatabaseClient(databaseUrl);
-  await client.gameSession.update({ where: { id: sessionId }, data: { questionEndsAt: new Date(Date.now() + milliseconds) } });
+  // The Quiz state (QuizMatchState) is the source of truth for the deadline; the legacy mirror follows.
+  const questionEndsAt = new Date(Date.now() + milliseconds);
+  await client.quizMatchState.update({ where: { matchId: sessionId }, data: { questionEndsAt } });
+  await client.gameSession.update({ where: { id: sessionId }, data: { questionEndsAt } });
   await client.$disconnect();
 }
 async function resetRoom(number) {
@@ -59,9 +62,11 @@ async function resetRoom(number) {
     const sessions = await client.gameSession.findMany({ where: { roomId: room.id }, select: { id: true } });
     const sessionIds = sessions.map((s) => s.id);
     await client.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
-    await client.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+    await client.quizParticipantState.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.matchParticipant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
+    await client.quizRoomConfiguration.deleteMany({ where: { roomId: room.id } });
+    await client.quizMatchState.deleteMany({ where: { matchId: { in: sessionIds } } });
     await client.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
   }
   await client.$disconnect();

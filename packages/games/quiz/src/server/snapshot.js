@@ -1,5 +1,5 @@
 import { quizSnapshotSchema } from "@quizarena/contracts";
-import { parse } from "../errors/domain-error.js";
+import { parse } from "@quizarena/database";
 
 export function deepFreeze(value) {
   if (value && typeof value === "object") {
@@ -36,14 +36,6 @@ export function snapshotFromQuiz(quiz) {
           })),
       })),
   });
-}
-export function sessionDTO(session) {
-  if (!session) return null;
-  const result = structuredClone(session);
-  delete result.hostTokenHash;
-  // Only Quiz matches carry a snapshot; another game's match has none.
-  if (result.quizSnapshot != null) result.quizSnapshot = validateSnapshot(result.quizSnapshot);
-  return result;
 }
 export function participantDTO(participant) {
   const result = structuredClone(participant);

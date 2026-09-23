@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase as createDatabase } from "@multygames/server-bootstrap";
 import { createClient } from "../../../packages/database/src/client.js";
 import { isolatedTestUrl } from "../../../packages/database/tooling/environment.js";
 import { createRealtimeServer } from "../src/server.js";

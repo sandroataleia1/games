@@ -3,12 +3,12 @@ import { parse, DomainError } from "../errors/domain-error.js";
 import { transaction } from "../repositories/transaction.js";
 
 const numberSchema = z.number().int().positive();
-const include = { quiz: { select: { id: true, title: true } } };
 
-// quizId/quizTitle are the legacy Quiz theme still stored on the room row;
-// they stay in the DTO so the existing protocol is unchanged (ADR-008).
+// Generic room DTO (internal to the server: `id` and `currentSessionId` are
+// never sent to clients). Whatever a game configures on a room - the Quiz's
+// theme - is the game's own projection, not part of this DTO.
 export function roomDTO(room) {
-  return { number: room.number, status: room.status, gameKey: room.gameKey, quizId: room.quizId, quizTitle: room.quiz?.title ?? null, currentSessionId: room.currentSessionId ?? null };
+  return { id: room.id, number: room.number, status: room.status, gameKey: room.gameKey, currentSessionId: room.currentSessionId ?? null };
 }
 
 // Room = the meeting place: a numbered, persistent slot bound to one game.
@@ -18,20 +18,20 @@ export function createPlatformRooms(client, policy) {
     async create({ number, gameKey }) {
       policy.requireAvailable(gameKey);
       const parsed = parse(numberSchema, number, "ROOM_NOT_FOUND");
-      const created = await transaction(client, (tx) => tx.room.create({ data: { number: parsed, gameKey }, include }), "ROOM_NUMBER_CONFLICT");
+      const created = await transaction(client, (tx) => tx.room.create({ data: { number: parsed, gameKey } }), "ROOM_NUMBER_CONFLICT");
       return roomDTO(created);
     },
     async list({ gameKey } = {}) {
-      const rows = await client.room.findMany({ where: gameKey ? { gameKey } : undefined, include, orderBy: { number: "asc" } });
+      const rows = await client.room.findMany({ where: gameKey ? { gameKey } : undefined, orderBy: { number: "asc" } });
       return rows.map(roomDTO);
     },
     async get(number) {
-      const room = await client.room.findUnique({ where: { number: parse(numberSchema, number, "ROOM_NOT_FOUND") }, include });
+      const room = await client.room.findUnique({ where: { number: parse(numberSchema, number, "ROOM_NOT_FOUND") } });
       if (!room) throw new DomainError("ROOM_NOT_FOUND");
       return roomDTO(room);
     },
     async getById(id) {
-      const room = await client.room.findUnique({ where: { id: parse(z.uuid(), id, "ROOM_NOT_FOUND") }, include });
+      const room = await client.room.findUnique({ where: { id: parse(z.uuid(), id, "ROOM_NOT_FOUND") } });
       if (!room) throw new DomainError("ROOM_NOT_FOUND");
       return roomDTO(room);
     },

@@ -3,7 +3,7 @@ import { config } from "dotenv";
 import { afterAll, expect, test } from "vitest";
 import { io as createClient } from "socket.io-client";
 import { createClient as createRedisClient } from "redis";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase as createDatabase } from "@multygames/server-bootstrap";
 import { createClient as createDatabaseClient } from "../../../packages/database/src/client.js";
 import { EVENTS } from "@quizarena/contracts";
 import { createRealtimeServer } from "../src/server.js";
@@ -75,6 +75,7 @@ afterAll(async () => {
   const cleanup = createDatabaseClient(databaseUrl);
   const room = await cleanup.room.findUnique({ where: { number: ROOM } });
   if (room) await cleanup.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
+ await cleanup.quizRoomConfiguration.deleteMany({ where: { roomId: room.id } });
   if (playerAccountId) { await cleanup.organizerSession.deleteMany({ where: { ownerId: playerAccountId } }); await cleanup.organizer.delete({ where: { id: playerAccountId } }); }
   await cleanup.$disconnect();
 

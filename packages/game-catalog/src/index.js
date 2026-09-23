@@ -1,5 +1,5 @@
-import { createGameRegistry } from "@quizarena/game-registry";
-import { quizGame } from "@quizarena/game-quiz";
+import { createGameRegistry } from "@multygames/game-registry";
+import { quizGame } from "@multygames/game-quiz";
 
 // The single composition root of registered games, shared by the portal (web)
 // and the platform services (database/realtime). A new game joins by adding

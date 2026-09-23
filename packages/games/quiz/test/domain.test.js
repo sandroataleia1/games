@@ -4,10 +4,10 @@ import {
   quizInputSchema,
   quizSnapshotSchema,
 } from "@quizarena/contracts";
-import { snapshotFromQuiz } from "../src/mappers/snapshot.js";
-import { hashToken } from "../src/services/tokens.js";
-import { isolatedTestUrl } from "../tooling/environment.js";
-import { questionInput, quizFixture } from "./fixtures.js";
+import { snapshotFromQuiz } from "../src/server/snapshot.js";
+import { hashToken } from "@quizarena/database";
+import { isolatedTestUrl } from "@quizarena/database/testing";
+import { questionInput, quizFixture } from "../../../server-bootstrap/test/fixtures.js";
 
 test("normaliza título e rejeita título vazio", () => {
   expect(quizInputSchema.parse({ title: "  Quiz  " }).title).toBe("Quiz");

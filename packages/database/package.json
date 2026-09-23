@@ -4,21 +4,19 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./testing": "./tooling/environment.js"
   },
   "scripts": {
     "db:generate": "node tooling/cli.js generate",
     "db:migrate": "node tooling/cli.js migrate",
-    "db:seed": "node tooling/cli.js seed",
     "db:studio": "node tooling/cli.js studio",
-    "db:test:prepare": "node tooling/cli.js test:prepare"
+    "db:test:prepare": "node tooling/cli.js test:prepare",
+    "db:verify": "node tooling/cli.js verify"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
     "@quizarena/contracts": "workspace:*",
-    "@quizarena/game-catalog": "workspace:*",
-    "@quizarena/game-quiz": "workspace:*",
-    "@quizarena/game-registry": "workspace:*",
     "dotenv": "^17.2.2",
     "zod": "^4.1.12"
   },

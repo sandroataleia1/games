@@ -3,7 +3,7 @@ import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { Server } from "socket.io";
 import { EVENTS, systemPingSchema } from "@quizarena/contracts";
-import { createDatabase } from "@quizarena/database";
+import { createServerDatabase } from "@multygames/server-bootstrap";
 import { createApp } from "./app.js";
 import { parseWebOrigins } from "./origins.js";
 import { createDependencyChecks } from "./dependencies.js";
@@ -79,7 +79,7 @@ export async function start() {
     databaseUrl: process.env.DATABASE_URL,
     redisUrl: process.env.REDIS_URL,
   });
-  const database = createDatabase({ databaseUrl: process.env.DATABASE_URL, maxPlayers: Number(process.env.MAX_PLAYERS || 20) });
+  const database = createServerDatabase({ databaseUrl: process.env.DATABASE_URL, maxPlayers: Number(process.env.MAX_PLAYERS || 20), resultAdvanceMs: Number(process.env.RESULT_ADVANCE_MS || 45000) });
   const rateLimiter = createHttpRateLimiter({
     redisUrl: process.env.REDIS_URL,
     limit: Number(process.env.HTTP_AUTH_RATE_LIMIT || 10),
@@ -107,7 +107,6 @@ export async function start() {
     redisUrl: process.env.REDIS_URL,
     maxPlayers: Number(process.env.MAX_PLAYERS || 20),
     ttlSeconds: Number(process.env.LOBBY_TTL_SECONDS || 21600),
-    resultAdvanceMs: Number(process.env.RESULT_ADVANCE_MS || 45000),
   });
   server.setLobby(lobby);
   await lobby.connect();

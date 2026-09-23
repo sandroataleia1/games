@@ -1,35 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, afterEach, test, expect } from "vitest";
-import { createGameRegistry, defineGameModule } from "@quizarena/game-registry";
-import { quizGame } from "@quizarena/game-quiz";
-import { createDatabase } from "../src/index.js";
-import { createClient } from "../src/client.js";
-import { quizServerAdapter } from "../src/games/quiz-adapter.js";
-import { QUIZ_GAME_KEY } from "../src/games/quiz-key.js";
-import { isolatedTestUrl } from "../tooling/environment.js";
+import { createGameRegistry } from "@multygames/game-registry";
+import { quizGame } from "@multygames/game-quiz";
+import { createServerDatabase as createDatabase } from "../src/index.js";
+import { createClient } from "@quizarena/database";
+import { syntheticGameModule, createSyntheticRuntime } from "../src/testing.js";
+import { QUIZ_GAME_KEY } from "@multygames/game-quiz/server";
+import { isolatedTestUrl } from "@quizarena/database/testing";
 import { questionInput } from "./fixtures.js";
 
-// Synthetic games exist ONLY in this file - nothing is registered in the app.
-function synthetic(key, status) {
-  return defineGameModule({
-    definition: {
-      key, slug: key, name: key, shortDescription: key, description: key, status, route: `/jogos/${key}`,
-      releasedAt: "2026-01-01T00:00:00-03:00", categoryKeys: ["TRIVIA"], minPlayers: 1, maxPlayers: 4,
-      supportsSolo: true, supportsPublicRooms: true, supportsPrivateRooms: false,
-      visual: { accent: "red", gradient: "red", icon: "X" },
-    },
-    implementation: { web: `apps/web/${key}`, realtime: `test/${key}` },
-  });
-}
-const fakeCalls = [];
-const fakeAdapter = {
-  gameKey: "fake-game",
-  async prepareMatch({ room }) { fakeCalls.push(["prepareMatch", room.gameKey]); return { columns: {} }; },
-  async createParticipantState({ matchParticipant }) { fakeCalls.push(["createParticipantState", matchParticipant.id]); },
-  recoverMatch({ match }) { return match.status === "ACTIVE" ? { kind: "resume" } : null; },
-};
+// Synthetic games exist ONLY in tests - nothing is registered in the app.
+const synthetic = syntheticGameModule;
+const fake = createSyntheticRuntime("fake-game");
 const registry = createGameRegistry([quizGame, synthetic("fake-game", "AVAILABLE"), synthetic("coming-game", "COMING_SOON"), synthetic("old-game", "DISABLED")]);
-const adapters = [quizServerAdapter, fakeAdapter];
 
 let client, database, second, ownerId;
 const quizIds = [];
@@ -40,18 +23,20 @@ const sessionIds = new Set();
 beforeAll(async () => {
   const url = isolatedTestUrl();
   client = createClient(url);
-  database = createDatabase({ databaseUrl: url, registry, adapters });
-  second = createDatabase({ databaseUrl: url, registry, adapters }); // a second "instance"
+  database = createDatabase({ databaseUrl: url, catalog: registry, extraRuntimes: [fake.runtime] });
+  second = createDatabase({ databaseUrl: url, catalog: registry, extraRuntimes: [fake.runtime] }); // a second "instance"
   ownerId = await account("Dono");
 });
 afterEach(async () => {
   const ids = [...sessionIds];
   await client.answer.deleteMany({ where: { gameSessionId: { in: ids } } });
-  await client.participant.deleteMany({ where: { gameSessionId: { in: ids } } });
+  await client.quizParticipantState.deleteMany({ where: { gameSessionId: { in: ids } } });
   await client.matchParticipant.deleteMany({ where: { gameSessionId: { in: ids } } });
   await client.room.updateMany({ where: { currentSessionId: { in: ids } }, data: { status: "OPEN", currentSessionId: null } });
+  await client.quizMatchState.deleteMany({ where: { matchId: { in: ids } } });
   await client.gameSession.deleteMany({ where: { id: { in: ids } } });
   sessionIds.clear();
+  await client.quizRoomConfiguration.deleteMany({ where: { room: { number: { in: roomNumbers } } } });
   await client.room.updateMany({ where: { number: { in: roomNumbers } }, data: { quizId: null } });
 });
 afterAll(async () => {
@@ -157,23 +142,27 @@ test("a Quiz service refuses a match of another game", async () => {
 // --- Core agnóstico: um segundo jogo usa salas sem tabelas do Quiz -------
 
 test("a second game runs a match through the same platform without any Quiz table", async () => {
-  fakeCalls.length = 0;
+  fake.state.calls.length = 0;
   const r = await room("fake-game");
   const user = await account("Duda");
   const match = track(await database.rooms.startMatch(r.number, [entry(user)]));
-  expect(match).toMatchObject({ gameKey: "fake-game", quizId: null, quizSnapshot: null });
-  expect(fakeCalls.map(([name]) => name)).toEqual(["prepareMatch", "createParticipantState"]);
-  expect(await client.participant.count({ where: { gameSessionId: match.id } })).toBe(0);
+  expect(match).toMatchObject({ gameKey: "fake-game" });
+  for (const quizField of ["quizId", "quizSnapshot", "matchPhase"]) expect(match).not.toHaveProperty(quizField);
+  expect(fake.state.calls).toEqual(["prepareMatch", "createMatchState", "createParticipantState"]);
+  expect(await client.quizMatchState.count({ where: { matchId: match.id } })).toBe(0);
+  const row = await client.gameSession.findUnique({ where: { id: match.id } });
+  expect([row.quizId, row.quizSnapshot]).toEqual([null, null]);
+  expect(await client.quizParticipantState.count({ where: { gameSessionId: match.id } })).toBe(0);
   expect(await client.matchParticipant.count({ where: { gameSessionId: match.id, userId: user } })).toBe(1);
 });
 
-test("an available game that declares a realtime implementation but has no server adapter is refused at startup", () => {
-  expect(() => createDatabase({ databaseUrl: isolatedTestUrl(), registry, adapters: [quizServerAdapter] })).toThrow(/fake-game/);
+test("an available game that declares a realtime implementation but has no runtime is refused at startup", () => {
+  expect(() => createDatabase({ databaseUrl: isolatedTestUrl(), catalog: registry, extraRuntimes: [] })).toThrow(/fake-game/);
 });
 
 test("an unavailable game cannot start a new match even if its room already exists", async () => {
   const r = await room("fake-game");
-  const cameSoon = createDatabase({ databaseUrl: isolatedTestUrl(), registry: createGameRegistry([quizGame, synthetic("fake-game", "COMING_SOON")]), adapters: [quizServerAdapter, fakeAdapter] });
+  const cameSoon = createDatabase({ databaseUrl: isolatedTestUrl(), catalog: createGameRegistry([quizGame, synthetic("fake-game", "COMING_SOON")]), extraRuntimes: [fake.runtime] });
   try {
     await expect(cameSoon.rooms.startMatch(r.number, [entry(await account("Edu"))])).rejects.toMatchObject({ code: "GAME_UNAVAILABLE" });
   } finally {
@@ -184,7 +173,7 @@ test("an unavailable game cannot start a new match even if its room already exis
 test("a room of a game that left the registry fails clearly, and its history stays readable", async () => {
   const r = await room("fake-game");
   const match = track(await database.rooms.startMatch(r.number, [entry(await account("Fabi"))]));
-  const gone = createDatabase({ databaseUrl: isolatedTestUrl(), registry: createGameRegistry([quizGame]), adapters: [quizServerAdapter] });
+  const gone = createDatabase({ databaseUrl: isolatedTestUrl(), catalog: createGameRegistry([quizGame]), extraRuntimes: [] });
   try {
     await expect(gone.rooms.startMatch(r.number, [entry(await account("Gabi"))])).rejects.toMatchObject({ code: "GAME_UNKNOWN" });
     expect((await gone.rooms.get(r.number)).gameKey).toBe("fake-game");
@@ -196,7 +185,7 @@ test("a room of a game that left the registry fails clearly, and its history sta
 
 test("a DISABLED game's history remains readable through the room DTO", async () => {
   const r = await room("fake-game");
-  const disabled = createDatabase({ databaseUrl: isolatedTestUrl(), registry: createGameRegistry([quizGame, synthetic("fake-game", "DISABLED")]), adapters: [quizServerAdapter, fakeAdapter] });
+  const disabled = createDatabase({ databaseUrl: isolatedTestUrl(), catalog: createGameRegistry([quizGame, synthetic("fake-game", "DISABLED")]), extraRuntimes: [fake.runtime] });
   try {
     expect(await disabled.rooms.get(r.number)).toMatchObject({ gameKey: "fake-game" });
     expect((await disabled.rooms.list({ gameKey: "fake-game" })).length).toBeGreaterThan(0);
@@ -212,7 +201,7 @@ test("participants are platform records tied to the authenticated account, shari
   const [ana, bia] = [await account("Ana"), await account("Bia")];
   const match = track(await database.rooms.startMatch(r.number, [entry(ana, "Ana"), entry(bia, "Bia")]));
   const generic = await client.matchParticipant.findMany({ where: { gameSessionId: match.id } });
-  const quizState = await client.participant.findMany({ where: { gameSessionId: match.id } });
+  const quizState = await client.quizParticipantState.findMany({ where: { gameSessionId: match.id } });
   expect(generic.map((p) => p.userId).sort()).toEqual([ana, bia].sort());
   expect(quizState.map((p) => p.id).sort()).toEqual(generic.map((p) => p.id).sort());
   expect(generic.every((p) => p.leftAt === null)).toBe(true);
@@ -257,7 +246,7 @@ test("a dropped connection is not abandonment; an explicit leave is, and resumin
   const p = match.participants[0];
   await database.sessions.disconnectParticipant(match.id, p.id);
   expect((await client.matchParticipant.findUnique({ where: { id: p.id } })).leftAt).toBeNull();
-  expect((await client.participant.findUnique({ where: { id: p.id } })).disconnectedAt).not.toBeNull();
+  expect((await client.quizParticipantState.findUnique({ where: { id: p.id } })).disconnectedAt).not.toBeNull();
   await database.sessions.leaveParticipant(match.id, p.id);
   expect((await client.matchParticipant.findUnique({ where: { id: p.id } })).leftAt).not.toBeNull();
   await database.sessions.resumePresenceForAccount(match.id, user);
@@ -342,33 +331,29 @@ test("finishing the same match twice is idempotent", async () => {
 
 // --- Recuperação ---------------------------------------------------------
 
-test("recovery comes from PostgreSQL alone and asks each game what is still pending", async () => {
+test("live matches come from PostgreSQL alone; the game rebuilds what its own state says", async () => {
   const r = await quizRoom();
   const match = track(await database.rooms.startMatch(r.number, [entry(await account("Pri"))]));
-  expect((await second.platform.matches.recoverable()).some((item) => item.match.id === match.id)).toBe(false); // lobby: nothing pending
+  expect((await second.platform.matches.live()).some((item) => item.match.id === match.id)).toBe(false); // lobby: not ACTIVE yet
   await database.sessions.startMatch(match.id);
-  const fresh = createDatabase({ databaseUrl: isolatedTestUrl(), registry, adapters }); // "restarted instance", no shared memory
+  const fresh = createDatabase({ databaseUrl: isolatedTestUrl(), catalog: registry, extraRuntimes: [fake.runtime] }); // "restarted instance", no shared memory
   try {
-    const recovered = (await fresh.platform.matches.recoverable()).find((item) => item.match.id === match.id);
-    expect(recovered.recovery.kind).toBe("question-deadline");
-    expect(recovered.room).toMatchObject({ number: r.number, gameKey: "quiz" });
-    expect(recovered.recovery.endsAt).toBeInstanceOf(Date);
+    const live = (await fresh.platform.matches.live()).find((item) => item.match.id === match.id);
+    expect(live.room).toMatchObject({ number: r.number, gameKey: "quiz" });
+    expect(live.match).not.toHaveProperty("quizSnapshot");
+    const { session } = await fresh.sessions.currentQuestion(match.id); // the Quiz's own state
+    expect(session.matchPhase).toBe("QUESTION");
+    expect(session.questionEndsAt).toBeInstanceOf(Date);
   } finally {
     await fresh.close();
   }
 });
 
-test("a live match of a game with no adapter is skipped, not guessed at", async () => {
+test("a live match of any game is listed; resolving its runtime is the host's job", async () => {
   const r = await room("fake-game");
   const match = track(await database.rooms.startMatch(r.number, [entry(await account("Quin"))]));
   await client.gameSession.update({ where: { id: match.id }, data: { status: "ACTIVE" } });
-  const withoutFake = createDatabase({ databaseUrl: isolatedTestUrl(), registry: createGameRegistry([quizGame]), adapters: [quizServerAdapter] });
-  try {
-    expect((await withoutFake.platform.matches.recoverable()).some((item) => item.match.id === match.id)).toBe(false);
-    expect((await database.platform.matches.recoverable()).some((item) => item.match.id === match.id)).toBe(true);
-  } finally {
-    await withoutFake.close();
-  }
+  expect((await database.platform.matches.live()).some((item) => item.match.id === match.id && item.match.gameKey === "fake-game")).toBe(true);
 });
 
 // --- Histórico, ranking e respostas seguem no módulo do Quiz -------------

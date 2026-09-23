@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { createGameRegistry, GAME_STATUS } from "@quizarena/game-registry";
+import { createGameRegistry, GAME_STATUS } from "@multygames/game-registry";
 import { quizGame } from "./src/index.js";
 
 test("the Quiz module is available, routes to /jogos/quiz and supports solo play", () => {

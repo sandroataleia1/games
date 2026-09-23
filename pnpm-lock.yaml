@@ -32,15 +32,15 @@ importers:
 
   apps/realtime:
     dependencies:
+      '@multygames/server-bootstrap':
+        specifier: workspace:*
+        version: link:../../packages/server-bootstrap
       '@quizarena/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
       '@quizarena/database':
         specifier: workspace:*
         version: link:../../packages/database
-      '@quizarena/game-quiz':
-        specifier: workspace:*
-        version: link:../../packages/games/quiz
       '@socket.io/redis-adapter':
         specifier: ^8.3.0
         version: 8.3.0(socket.io-adapter@2.5.8)
@@ -63,6 +63,15 @@ importers:
         specifier: ^4.8.1
         version: 4.8.3
     devDependencies:
+      '@multygames/game-quiz':
+        specifier: workspace:*
+        version: link:../../packages/games/quiz
+      '@multygames/game-registry':
+        specifier: workspace:*
+        version: link:../../packages/game-registry
+      '@multygames/game-runtime':
+        specifier: workspace:*
+        version: link:../../packages/game-runtime
       eslint:
         specifier: ^9.39.5
         version: 9.39.5(jiti@2.7.0)
@@ -72,18 +81,18 @@ importers:
 
   apps/web:
     dependencies:
+      '@multygames/game-catalog':
+        specifier: workspace:*
+        version: link:../../packages/game-catalog
+      '@multygames/game-quiz':
+        specifier: workspace:*
+        version: link:../../packages/games/quiz
+      '@multygames/game-registry':
+        specifier: workspace:*
+        version: link:../../packages/game-registry
       '@quizarena/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
-      '@quizarena/game-catalog':
-        specifier: workspace:*
-        version: link:../../packages/game-catalog
-      '@quizarena/game-quiz':
-        specifier: workspace:*
-        version: link:../../packages/games/quiz
-      '@quizarena/game-registry':
-        specifier: workspace:*
-        version: link:../../packages/game-registry
       next:
         specifier: 16.3.5
         version: 16.3.5(@babel/core@7.29.7)(@playwright/test@1.63.0)(@types/node@26.6.2)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -121,15 +130,6 @@ importers:
       '@quizarena/contracts':
         specifier: workspace:*
         version: link:../contracts
-      '@quizarena/game-catalog':
-        specifier: workspace:*
-        version: link:../game-catalog
-      '@quizarena/game-quiz':
-        specifier: workspace:*
-        version: link:../games/quiz
-      '@quizarena/game-registry':
-        specifier: workspace:*
-        version: link:../game-registry
       dotenv:
         specifier: ^17.2.2
         version: 17.4.2
@@ -143,10 +143,10 @@ importers:
 
   packages/game-catalog:
     dependencies:
-      '@quizarena/game-quiz':
+      '@multygames/game-quiz':
         specifier: workspace:*
         version: link:../games/quiz
-      '@quizarena/game-registry':
+      '@multygames/game-registry':
         specifier: workspace:*
         version: link:../game-registry
 
@@ -156,11 +156,64 @@ importers:
         specifier: ^4.1.12
         version: 4.6.5
 
+  packages/game-runtime:
+    dependencies:
+      zod:
+        specifier: ^4.1.12
+        version: 4.6.5
+    devDependencies:
+      '@multygames/game-registry':
+        specifier: workspace:*
+        version: link:../game-registry
+
   packages/games/quiz:
     dependencies:
-      '@quizarena/game-registry':
+      '@multygames/game-registry':
         specifier: workspace:*
         version: link:../../game-registry
+      '@multygames/game-runtime':
+        specifier: workspace:*
+        version: link:../../game-runtime
+      '@quizarena/contracts':
+        specifier: workspace:*
+        version: link:../../contracts
+      '@quizarena/database':
+        specifier: workspace:*
+        version: link:../../database
+      zod:
+        specifier: ^4.1.12
+        version: 4.6.5
+
+  packages/server-bootstrap:
+    dependencies:
+      '@multygames/game-catalog':
+        specifier: workspace:*
+        version: link:../game-catalog
+      '@multygames/game-quiz':
+        specifier: workspace:*
+        version: link:../games/quiz
+      '@multygames/game-registry':
+        specifier: workspace:*
+        version: link:../game-registry
+      '@multygames/game-runtime':
+        specifier: workspace:*
+        version: link:../game-runtime
+      '@quizarena/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@quizarena/database':
+        specifier: workspace:*
+        version: link:../database
+      dotenv:
+        specifier: ^17.2.2
+        version: 17.4.2
+      zod:
+        specifier: ^4.1.12
+        version: 4.6.5
+    devDependencies:
+      eslint:
+        specifier: ^9.39.5
+        version: 9.39.5(jiti@2.7.0)
 
 packages:
 

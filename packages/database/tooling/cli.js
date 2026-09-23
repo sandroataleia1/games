@@ -11,9 +11,13 @@ const commands = {
   studio: ["studio", "--browser", "none", "--hostname", "127.0.0.1"],
   "test:prepare": ["migrate", "deploy"],
 };
-if (command === "seed") {
-  const { runSeed } = await import("../prisma/seed.js");
-  await runSeed();
+if (command === "verify") {
+  const { runVerify } = await import("./verify.js");
+  const problems = await runVerify();
+  if (problems.length) { console.error(problems.join("\n\n")); process.exitCode = 1; }
+  else console.info("db:verify ok: schema válido, sem drift e objetos SQL presentes.");
+} else if (command === "seed") {
+  throw new Error("O seed pertence ao módulo Quiz: use `pnpm db:seed` (server-bootstrap).");
 } else {
   if (!commands[command]) throw new Error("Comando de banco desconhecido");
   const env = { ...process.env };

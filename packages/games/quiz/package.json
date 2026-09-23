@@ -1,12 +1,17 @@
 {
-  "name": "@quizarena/game-quiz",
+  "name": "@multygames/game-quiz",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./server": "./src/server/index.js"
   },
   "dependencies": {
-    "@quizarena/game-registry": "workspace:*"
+    "@multygames/game-registry": "workspace:*",
+    "@multygames/game-runtime": "workspace:*",
+    "@quizarena/contracts": "workspace:*",
+    "@quizarena/database": "workspace:*",
+    "zod": "^4.1.12"
   }
 }

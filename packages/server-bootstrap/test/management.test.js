@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { createDatabase } from "../src/index.js";
-import { createClient } from "../src/client.js";
-import { isolatedTestUrl } from "../tooling/environment.js";
-import { verifySecret } from "../src/services/tokens.js";
+import { createServerDatabase as createDatabase } from "../src/index.js";
+import { createClient } from "@quizarena/database";
+import { isolatedTestUrl } from "@quizarena/database/testing";
+import { verifySecret } from "@quizarena/database";
 
 const url = isolatedTestUrl();
 const database = createDatabase({ databaseUrl: url });
@@ -13,7 +13,7 @@ async function owner(label) { const result = await database.organizers.register(
 const question = { prompt: "Qual é a resposta?", durationSeconds: 30, basePoints: 1000, explanation: null, options: [{ text: "Certa", isCorrect: true }, { text: "Errada", isCorrect: false }] };
 
 beforeAll(async () => expect((await client.$queryRaw`SELECT current_schema() AS name`)[0].name).toBe("quizarena_test"));
-afterAll(async () => { await client.answer.deleteMany({ where: { gameSession: { quiz: { ownerId: { in: ownerIds } } } } }); await client.participant.deleteMany({ where: { gameSession: { quiz: { ownerId: { in: ownerIds } } } } }); await client.gameSession.deleteMany({ where: { quiz: { ownerId: { in: ownerIds } } } }); await client.quiz.deleteMany({ where: { ownerId: { in: ownerIds } } }); await client.organizerSession.deleteMany({ where: { ownerId: { in: ownerIds } } }); await client.organizer.deleteMany({ where: { id: { in: ownerIds } } }); await Promise.all([database.close(), client.$disconnect()]); });
+afterAll(async () => { await client.answer.deleteMany({ where: { gameSession: { quiz: { ownerId: { in: ownerIds } } } } }); await client.quizParticipantState.deleteMany({ where: { gameSession: { quiz: { ownerId: { in: ownerIds } } } } }); await client.quizParticipantState.deleteMany({ where: { gameSession: { quizState: { quiz: { ownerId: { in: ownerIds } } } } } }); await client.matchParticipant.deleteMany({ where: { gameSession: { quizState: { quiz: { ownerId: { in: ownerIds } } } } } }); const owned = (await client.quizMatchState.findMany({ where: { quiz: { ownerId: { in: ownerIds } } }, select: { matchId: true } })).map((row) => row.matchId); await client.quizMatchState.deleteMany({ where: { matchId: { in: owned } } }); await client.gameSession.deleteMany({ where: { id: { in: owned } } }); await client.quiz.deleteMany({ where: { ownerId: { in: ownerIds } } }); await client.organizerSession.deleteMany({ where: { ownerId: { in: ownerIds } } }); await client.organizer.deleteMany({ where: { id: { in: ownerIds } } }); await Promise.all([database.close(), client.$disconnect()]); });
 
 test("normalizes email, hashes password, rotates login session and invalidates logout/expiry", async () => {
   const registered = await owner("auth");
@@ -95,4 +95,17 @@ test("legacy migration owner has no valid password or session and is not public"
   expect(await client.organizerSession.count({ where: { ownerId: legacy.id } })).toBe(0);
   expect(await database.organizers.authenticate(null)).toBeNull();
   expect((await database.organizers.publishedOwned(legacy.id)).every((quiz) => quiz.status === "PUBLISHED")).toBe(true);
+});
+
+test("reorders the questions of a draft quiz (positions stay positive and unique) and rejects a wrong order", async () => {
+  const account = await owner("reorder-questions");
+  let quiz = await database.organizers.createQuiz(account.user.id, { title: "Ordem das perguntas" });
+  for (const prompt of ["Primeira", "Segunda", "Terceira"]) quiz = await database.organizers.addQuestion(account.user.id, quiz.id, { prompt, durationSeconds: 5, basePoints: 1000, options: [{ text: "A", isCorrect: true }, { text: "B", isCorrect: false }] });
+  const ids = (await database.organizers.getQuiz(account.user.id, quiz.id)).questions.map((question) => question.id);
+  const reordered = await database.organizers.reorder(account.user.id, quiz.id, [ids[2], ids[0], ids[1]]);
+  expect(reordered.questions.map((question) => question.prompt)).toEqual(["Terceira", "Primeira", "Segunda"]);
+  expect(reordered.questions.map((question) => question.position)).toEqual([1, 2, 3]);
+  expect(reordered.version).toBeGreaterThan(quiz.version);
+  await expect(database.organizers.reorder(account.user.id, quiz.id, [ids[0], ids[1]])).rejects.toMatchObject({ code: "INVALID_ORDER" });
+  await expect(database.organizers.reorder(account.user.id, quiz.id, [ids[0], ids[0], ids[1]])).rejects.toMatchObject({ code: "INVALID_ORDER" });
 });

@@ -1,12 +1,8 @@
 import { pathToFileURL } from "node:url";
-import { createClient } from "../src/client.js";
-import { loadEnvironment } from "../tooling/environment.js";
-import { transaction } from "../src/repositories/transaction.js";
-import { quizRepository } from "../src/repositories/quizzes.js";
-import { snapshotFromQuiz } from "../src/mappers/snapshot.js";
 import { questionInputSchema } from "@quizarena/contracts";
-import { DomainError, parse } from "../src/errors/domain-error.js";
-import { hashSecret } from "../src/services/tokens.js";
+import { DomainError, parse, createClient, transaction, hashSecret } from "@quizarena/database";
+import { quizRepository } from "./quizzes-repository.js";
+import { snapshotFromQuiz } from "./snapshot.js";
 
 export const SEED_QUIZ_ID = "00000000-0000-4000-8000-000000000001";
 export const SEED_ORGANIZER_ID = "00000000-0000-4000-8000-000000000002";
@@ -83,7 +79,6 @@ export async function seedDevelopment(client) {
   });
 }
 export async function runSeed() {
-  loadEnvironment();
   const client = createClient(process.env.DATABASE_URL);
   try {
     const quiz = await seedDevelopment(client);

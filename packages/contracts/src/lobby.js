@@ -5,7 +5,8 @@ const empty = z.object({}).strict();
 
 export const lobbySchemas = Object.freeze({
   quizList: empty,
-  roomList: empty,
+  // gameKey is optional: clients older than PLATFORM-07B send {} and get the default game.
+  roomList: z.object({ gameKey: z.string().min(1).optional() }).strict(),
   roomEnter: z.object({ roomNumber }).strict(),
   roomLeave: z.object({ roomNumber }).strict(),
   themeSelect: z.object({ roomNumber, quizId: z.uuid() }).strict(),

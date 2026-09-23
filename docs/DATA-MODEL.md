@@ -4,6 +4,31 @@
 
 Quizzes usados por `GameSession` não podem ser removidos. Despublicar altera somente o conteúdo editável; sessões existentes continuam referenciando o snapshot imutável.
 
+## Persistência do Quiz isolada (PLATFORM-07C)
+
+Decisões e rollout no [ADR-009](ADR-009-isolamento-do-quiz-e-runtime-por-modalidade.md). Resumo do modelo atual:
+
+| Tabela (Prisma) | Dono | Fonte de verdade de |
+| --- | --- | --- |
+| `Room`, `GameSession`, `MatchParticipant` | plataforma | sala, partida (fatos genéricos), participação |
+| `QuizRoomConfiguration` (`roomId` PK) | módulo Quiz | tema (quiz) da sala |
+| `QuizMatchState` (`matchId` PK) | módulo Quiz | snapshot e progresso da partida |
+| `QuizParticipantState` (tabela `Participant`) | módulo Quiz | score, token e respostas do participante |
+| `Answer` | módulo Quiz | respostas |
+
+`QuizRoomConfiguration` e `QuizMatchState` têm `gameKey` constante (`CHECK = 'quiz'`) e FK composta para `Room`/`GameSession(id, gameKey)`: outra modalidade não pode ter estado do Quiz. **Colunas legadas** (espelho de rollout, sem ser fonte): `Room.quizId`; `GameSession.quizId`, `quizSnapshot`, `matchPhase`, `currentQuestionIndex`, `questionStartedAt`, `questionEndsAt`. A migration de contração que as remove está descrita no ADR-009 e **não** foi executada.
+
+```mermaid
+erDiagram
+  Room ||--o| QuizRoomConfiguration : "tema (Quiz)"
+  GameSession ||--o| QuizMatchState : "snapshot e progresso (Quiz)"
+  Quiz ||--o{ QuizRoomConfiguration : "selecionado por"
+  Quiz ||--o{ QuizMatchState : "origina"
+  MatchParticipant ||--o| QuizParticipantState : "estado do Quiz"
+```
+
+Objetos que só existem em SQL (índice parcial, CHECKs, triggers) e a verificação por `pg_catalog` (`pnpm db:verify`): ADR-009. Auditoria legado × módulo: `pnpm db:audit-quiz`. `pnpm db:seed` pertence ao módulo Quiz (`@multygames/server-bootstrap`).
+
 ## Plataforma: salas, partidas e participantes (PLATFORM-07B)
 
 Complementa as tabelas acima; decisões completas no [ADR-008](ADR-008-salas-partidas-e-participantes-genericos.md).
@@ -27,7 +52,7 @@ erDiagram
 
 Invariantes no banco: `Room(id, gameKey)` único + FK `GameSession(roomId, gameKey)` com `RESTRICT` (partida não diverge da sala; a modalidade da sala não muda depois de ter partida); índice único parcial `GameSession(roomId)` para `WAITING`/`ACTIVE` (uma partida viva por sala); `MatchParticipant` único por `(partida, usuário)`; `Participant` ligado ao `MatchParticipant` da mesma partida por FK composta. `gameKey` é texto validado pelo registro em código, não enum.
 
-Não há tabela `Game`: o catálogo vive em `@quizarena/game-registry`.
+Não há tabela `Game`: o catálogo vive em `@multygames/game-registry`.
 
 ## Projeções do lobby
 
@@ -100,19 +125,15 @@ O chamador fornece tokens com 32–512 caracteres. O serviço aplica scrypt (N=1
 
 Geração, validação de posse, autenticação, revogação e transporte dos tokens estão adiados. O chamador futuro deverá fornecer tokens criptograficamente imprevisíveis; comprimento por si só não comprova entropia. O snapshot inclui gabaritos e é dado interno do servidor: endpoints futuros precisarão de DTOs específicos para os jogadores.
 
-## API do pacote
+## API dos pacotes
 
-`createDatabase({ databaseUrl, registry?, adapters? })` (padrões: catálogo compartilhado e adaptador do Quiz) retorna:
+`@quizarena/database` expõe só primitivas e serviços genéricos: `createClient`, `transaction`, `DomainError`, `parse`, hashing de tokens (`hashToken`/`verifyToken`), `createIdentityService` (registro, login, sessão), `createPlatform` (`rooms`, `matches`, `participants`, `policy`), `roomDTO`, `matchDTO`, `createDatabaseHealthProbe`. Não importa nenhum jogo.
 
-- `quizzes.createDraft(input)`, `getById(id)`, `addQuestion(id, input)`, `publish(id)`, `archive(id)`, `listByStatus(status)`, `buildQuizSnapshot(id)`.
-- `sessions.create({ roomCode, snapshot, hostToken })`, `getById(id)`, `getByCode(code)`, `registerParticipant({ gameSessionId, displayName, reconnectToken })`, `registerAnswer(decision)`, `finish(id)`.
-- `rooms.list({ gameKey })`, `get(número)`, `startMatch(número, participantes)`, `selectTheme(...)`, `reopen(salaId, partidaId)`.
-- `platform.{rooms, matches, participants, policy, adapters}`: serviços genéricos da plataforma (ADR-008).
-- `close()`: desconecta Prisma.
+`@multygames/server-bootstrap` (`createServerDatabase({ databaseUrl, maxPlayers, resultAdvanceMs, logger, legacyCompat })`) compõe tudo e devolve, além de `platform`, `runtimes`, `identity` e `quiz`, as vistas de compatibilidade usadas pelo realtime e pelos testes: `organizers` (identidade + autoria do Quiz), `quizzes`, `sessions` (serviço de partida do Quiz), `rooms` (`list`, `get`, `getById`, `selectTheme`, `startMatch`, `reopen`).
 
-`createDatabaseHealthProbe(databaseUrl)` expõe apenas `check()` e `close()`. Importar o pacote não abre conexão. Prisma não é exportado pela API pública.
+`@multygames/game-quiz/server` (`createQuizServer`) devolve `matches`, `rooms` (configuração), `authoring`, `content`, `states`, `compat` e `runtime`. Exporta também `auditQuizLegacy`, `seedDevelopment`.
 
-Erros esperados incluem `QUIZ_NOT_FOUND`, `QUIZ_INVALID`, `QUIZ_NOT_PUBLISHED`, `QUIZ_NOT_DRAFT`, `QUIZ_ARCHIVED`, `QUESTION_POSITION_CONFLICT`, `ROOM_CODE_CONFLICT`, `PARTICIPANT_NAME_CONFLICT`, `ANSWER_ALREADY_SUBMITTED`, `SNAPSHOT_REFERENCE_INVALID`, `ANSWER_DECISION_INVALID`, `SESSION_NOT_ACTIVE` e `TRANSACTION_CONFLICT`. Use `error.code`, não a mensagem textual.
+`createDatabaseHealthProbe(databaseUrl)` expõe apenas `check()` e `close()`. Importar os pacotes não abre conexão. Prisma não é exportado. Erros: use `error.code` (ex.: `QUIZ_STATE_MISSING`, `GAME_UNKNOWN`, `GAME_UNAVAILABLE`, `ROOM_NOT_WAITING`, além dos listados abaixo).
 
 ## Migration, seed e isolamento dos testes
 

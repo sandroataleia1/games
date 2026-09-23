@@ -1,5 +1,5 @@
 {
-  "name": "@quizarena/game-registry",
+  "name": "@multygames/game-registry",
   "version": "0.1.0",
   "private": true,
   "type": "module",

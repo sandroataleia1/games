@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, afterAll, test, expect } from "vitest";
-import { createDatabase, createDatabaseHealthProbe } from "../src/index.js";
-import { createClient } from "../src/client.js";
-import { transaction } from "../src/repositories/transaction.js";
-import { quizRepository } from "../src/repositories/quizzes.js";
-import { isolatedTestUrl } from "../tooling/environment.js";
-import { seedDevelopment, SEED_QUIZ_ID } from "../prisma/seed.js";
+import { createServerDatabase as createDatabase } from "../src/index.js";
+import { createDatabaseHealthProbe } from "@quizarena/database";
+import { createClient } from "@quizarena/database";
+import { transaction } from "@quizarena/database";
+import { quizRepository } from "@multygames/game-quiz/server";
+import { isolatedTestUrl } from "@quizarena/database/testing";
+import { seedDevelopment, SEED_QUIZ_ID } from "@multygames/game-quiz/server";
 import { questionInput, TEST_TOKEN } from "./fixtures.js";
 
 let client, database, development;
@@ -16,7 +17,7 @@ const counts = async (db) =>
   Promise.all([
     db.quiz.count(),
     db.gameSession.count(),
-    db.participant.count(),
+    db.quizParticipantState.count(),
     db.answer.count(),
   ]);
 beforeAll(async () => {
@@ -40,10 +41,11 @@ afterAll(async () => {
       });
       const ids = sessions.map((s) => s.id);
       await tx.answer.deleteMany({ where: { gameSessionId: { in: ids } } });
-      await tx.participant.deleteMany({
+      await tx.quizParticipantState.deleteMany({
         where: { gameSessionId: { in: ids } },
       });
       await tx.matchParticipant.deleteMany({ where: { gameSessionId: { in: ids } } });
+      await tx.quizMatchState.deleteMany({ where: { matchId: { in: ids } } });
       await tx.gameSession.deleteMany({ where: { id: { in: ids } } });
       await tx.quiz.deleteMany({ where: { id: { in: ownedQuizIds } } });
       await tx.organizerSession.deleteMany({ where: { ownerId } });
@@ -223,7 +225,7 @@ test("nomes normalizados duplicados na mesma sessão são permitidos (identidade
   expect(second.normalizedName).toBe("ana silva");
   expect(first.score).toBe(0);
   expect(first).not.toHaveProperty("reconnectTokenHash");
-  const row = await client.participant.findUnique({ where: { id: first.id } });
+  const row = await client.quizParticipantState.findUnique({ where: { id: first.id } });
   expect(row.reconnectTokenHash).toMatch(/^scrypt\$v1\$/);
   expect(row.reconnectTokenHash).not.toContain(TEST_TOKEN);
   const other = await session();
@@ -238,13 +240,13 @@ test("uma conta gera no máximo uma participação por sessão; reentrada resume
     expect(entered.participant.id).toBe(resumed.participant.id);
     expect(entered.created).toBe(true);
     expect(resumed.created).toBe(false);
-    expect(await client.participant.count({ where: { gameSessionId: s.id, userId: guest.user.id } })).toBe(1);
+    expect(await client.quizParticipantState.count({ where: { gameSessionId: s.id, userId: guest.user.id } })).toBe(1);
     const other = await session();
     const elsewhere = await database.sessions.enterAsAccount({ gameSessionId: other.id, userId: guest.user.id, displayName: guest.user.name });
     expect(elsewhere.participant.id).not.toBe(entered.participant.id);
   } finally {
     await client.organizerSession.deleteMany({ where: { ownerId: guest.user.id } });
-    await client.participant.deleteMany({ where: { userId: guest.user.id } });
+    await client.quizParticipantState.deleteMany({ where: { userId: guest.user.id } });
     await client.matchParticipant.deleteMany({ where: { userId: guest.user.id } });
     await client.organizer.delete({ where: { id: guest.user.id } });
   }
@@ -263,6 +265,7 @@ test("salas privadas ficam fora da descoberta pública; salas públicas aparecem
     expect(entry).toMatchObject({ quizId: quiz.id, hostName: "Anfitriã", playerCount: 0, status: "WAITING", canJoin: true });
     expect(entry).not.toHaveProperty("hostTokenHash");
     expect(entry).not.toHaveProperty("hostUserId");
+    await client.quizMatchState.deleteMany({ where: { matchId: { in: [publicRoom.id, privateRoom.id] } } });
     await client.gameSession.deleteMany({ where: { id: { in: [publicRoom.id, privateRoom.id] } } });
   } finally {
     await client.organizerSession.deleteMany({ where: { ownerId: host.user.id } });
@@ -277,16 +280,19 @@ test("host que também joga conta como participante e permite iniciar sozinho; s
     await database.sessions.enterAsAccount({ gameSessionId: soloRoom.id, userId: host.user.id, displayName: host.user.name });
     const started = await database.sessions.startMatch(soloRoom.id);
     expect(started.matchPhase).toBe("QUESTION");
-    await client.participant.deleteMany({ where: { gameSessionId: soloRoom.id } });
+    await client.quizParticipantState.deleteMany({ where: { gameSessionId: soloRoom.id } });
     await client.matchParticipant.deleteMany({ where: { gameSessionId: soloRoom.id } });
+    await client.quizMatchState.deleteMany({ where: { matchId: soloRoom.id } });
     await client.gameSession.delete({ where: { id: soloRoom.id } });
 
     const organizeOnlyRoom = await database.organizers.createRoomFromPublished(quiz.id, `ORG${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PRIVATE" });
     await expect(database.sessions.startMatch(organizeOnlyRoom.id)).rejects.toMatchObject({ code: "NO_PARTICIPANTS" });
+    await client.quizMatchState.deleteMany({ where: { matchId: organizeOnlyRoom.id } });
     await client.gameSession.delete({ where: { id: organizeOnlyRoom.id } });
   } finally {
-    await client.participant.deleteMany({ where: { userId: host.user.id } });
+    await client.quizParticipantState.deleteMany({ where: { userId: host.user.id } });
     await client.matchParticipant.deleteMany({ where: { userId: host.user.id } });
+    await client.quizMatchState.deleteMany({ where: { match: { hostUserId: host.user.id } } });
     await client.gameSession.deleteMany({ where: { hostUserId: host.user.id } });
     await client.organizerSession.deleteMany({ where: { ownerId: host.user.id } });
     await client.organizer.delete({ where: { id: host.user.id } });
@@ -390,7 +396,7 @@ test("rejeita referência externa, decisão incoerente e participante de outra s
 test("banco rejeita valores negativos e preserva relações históricas", async () => {
   const { s, p } = await activeSession();
   await expect(
-    client.participant.update({ where: { id: p.id }, data: { score: -1 } }),
+    client.quizParticipantState.update({ where: { id: p.id }, data: { score: -1 } }),
   ).rejects.toThrow();
   await expect(
     client.answer.create({ data: { ...decision(s, p), responseTimeMs: -1 } }),
@@ -457,7 +463,7 @@ test("falha SQL após escrita reverte a transação inteira", async () => {
 test("seed executado duas vezes é idempotente e não cria partidas", async () => {
   const before = await Promise.all([
     client.gameSession.count(),
-    client.participant.count(),
+    client.quizParticipantState.count(),
     client.answer.count(),
   ]);
   const first = await seedDevelopment(client);
@@ -475,7 +481,7 @@ test("seed executado duas vezes é idempotente e não cria partidas", async () =
   expect(
     await Promise.all([
       client.gameSession.count(),
-      client.participant.count(),
+      client.quizParticipantState.count(),
       client.answer.count(),
     ]),
   ).toEqual(before);

@@ -1,17 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { beforeAll, afterAll, test, expect } from "vitest";
-import { createDatabase } from "../src/index.js";
-import { createClient } from "../src/client.js";
-import { isolatedTestUrl } from "../tooling/environment.js";
+import { createServerDatabase as createDatabase } from "../src/index.js";
+import { createClient } from "@quizarena/database";
+import { auditQuizLegacy } from "@multygames/game-quiz/server";
+import { verifySqlObjects, unexpectedDrift } from "../../database/tooling/sql-objects.js";
+import { isolatedTestUrl } from "@quizarena/database/testing";
 
 // Applies the project's REAL migration files, in order, to throw-away schemas.
 // "Before" is everything up to the last pre-PLATFORM-07B migration.
-const MIGRATIONS = new URL("../prisma/migrations/", import.meta.url);
+const MIGRATIONS = new URL("../../database/prisma/migrations/", import.meta.url);
 const all = readdirSync(MIGRATIONS, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
 const FIRST_07B = "20260924000100_platform_rooms_matches_participants";
 const before = all.filter((name) => name < FIRST_07B);
 const after = all.filter((name) => name >= FIRST_07B);
+const QUIZ_MODULE = "20260925000100_quiz_module_persistence";
+const platform07b = all.filter((name) => name >= FIRST_07B && name < QUIZ_MODULE);
 
 // Splits a migration file into statements, keeping $$...$$ bodies (trigger
 // functions) whole. Comment-only lines are dropped.
@@ -28,9 +32,11 @@ function statements(sql) {
   if (current.trim()) result.push(current.trim());
   return result;
 }
+// Like `prisma migrate deploy`: each migration file is applied atomically.
 async function apply(client, names) {
   for (const name of names) {
-    for (const statement of statements(readFileSync(new URL(`${name}/migration.sql`, MIGRATIONS), "utf8"))) await client.$executeRawUnsafe(statement);
+    const list = statements(readFileSync(new URL(`${name}/migration.sql`, MIGRATIONS), "utf8"));
+    await client.$transaction(async (tx) => { for (const statement of list) await tx.$executeRawUnsafe(statement); });
   }
 }
 
@@ -122,6 +128,26 @@ test("populated database: every row, id, relation, timestamp and score survives;
     expect((await one(client, `SELECT "hostUserId" FROM "GameSession" WHERE "id"='${ids.s4}'`)).hostUserId).toBe(ids.u1);
     expect((await one(client, `SELECT "userId" FROM "MatchParticipant" WHERE "id"='${ids.p5}'`)).userId).toBe(ids.u1);
 
+    // PLATFORM-07C: the module tables were filled from the legacy columns, same ids and stored timestamps.
+    expect(await count(client, "QuizMatchState")).toBe(rowsBefore.sessions);
+    expect(await count(client, "QuizRoomConfiguration")).toBe(2); // rooms 2 and 3 had a theme
+    const state = await one(client, `SELECT s."quizId", s."matchPhase", s."currentQuestionIndex", s."questionEndsAt", s."createdAt", s."updatedAt", s."quizSnapshot" = g."quizSnapshot" AS same_snapshot FROM "QuizMatchState" s JOIN "GameSession" g ON g."id" = s."matchId" WHERE s."matchId" = '${ids.s1}'`);
+    expect(state).toMatchObject({ quizId: ids.quiz, matchPhase: "FINISHED", same_snapshot: true });
+    expect(state.createdAt.toISOString()).toBe(T.created);
+    expect(state.updatedAt.toISOString()).toBe(T.finished); // finishedAt, never now()
+    const live = await one(client, `SELECT "matchPhase", "currentQuestionIndex" FROM "QuizMatchState" WHERE "matchId" = '${ids.s3}'`);
+    expect(live).toMatchObject({ matchPhase: "QUESTION", currentQuestionIndex: 0 });
+    expect((await one(client, `SELECT c."quizId" FROM "QuizRoomConfiguration" c JOIN "Room" r ON r."id" = c."roomId" WHERE r."number" = 3`)).quizId).toBe(ids.quiz);
+    const audit = await auditQuizLegacy(client);
+    expect(audit.ok).toBe(true);
+    expect(audit.totals).toMatchObject({ configurations: 2, matchStates: rowsBefore.sessions });
+    // The new backfill is idempotent too (a partial rerun duplicates nothing).
+    for (const statement of statements(readFileSync(new URL(`${QUIZ_MODULE}/migration.sql`, MIGRATIONS), "utf8")).filter((item) => /^INSERT INTO "Quiz(RoomConfiguration|MatchState)"/.test(item))) await client.$executeRawUnsafe(statement);
+    expect(await count(client, "QuizMatchState")).toBe(rowsBefore.sessions);
+    expect(await count(client, "QuizRoomConfiguration")).toBe(2);
+    // Every SQL-only object and guard constraint survived the migrations.
+    expect(await verifySqlObjects(client)).toEqual([]);
+
     // Re-running the backfill (a service restarted mid-transition) duplicates nothing.
     await client.$executeRawUnsafe(`INSERT INTO "MatchParticipant" ("id","gameSessionId","userId","joinedAt") SELECT p."id", p."gameSessionId", p."userId", p."joinedAt" FROM "Participant" p WHERE NOT EXISTS (SELECT 1 FROM "MatchParticipant" m WHERE m."id" = p."id")`);
     expect(await count(client, "MatchParticipant")).toBe(rowsBefore.participants);
@@ -133,11 +159,14 @@ test("populated database: every row, id, relation, timestamp and score survives;
     await expect(client.$executeRawUnsafe(`UPDATE "Room" SET "gameKey"='other-game' WHERE "id"='${await roomOf(ids.s1)}'`)).rejects.toThrow(/23503/);
     await expect(client.$executeRawUnsafe(`INSERT INTO "MatchParticipant" ("id","gameSessionId","userId") VALUES ('${randomUUID()}','${ids.s1}','${ids.u1}')`)).rejects.toThrow(/23505/);
 
-    // The active match is recoverable from PostgreSQL alone, through the real platform code.
+    // The active match is recoverable from PostgreSQL alone, through the real platform + Quiz code.
     const database = createDatabase({ databaseUrl: url });
     try {
-      const recovered = (await database.platform.matches.recoverable()).find((item) => item.match.id === ids.s3);
-      expect(recovered).toMatchObject({ room: { number: 3, gameKey: "quiz", status: "PLAYING" }, recovery: { kind: "question-deadline" } });
+      const live = (await database.platform.matches.live()).find((item) => item.match.id === ids.s3);
+      expect(live).toMatchObject({ room: { number: 3, gameKey: "quiz", status: "PLAYING" } });
+      const { session } = await database.sessions.currentQuestion(ids.s3);
+      expect(session).toMatchObject({ matchPhase: "QUESTION", currentQuestionIndex: 0 });
+      expect(session.quizSnapshot.questions).toHaveLength(1);
       expect(await database.rooms.list({ gameKey: "quiz" })).toHaveLength(rowsBefore.rooms);
       expect((await database.sessions.getById(ids.s1)).gameKey).toBe("quiz");
     } finally {
@@ -167,3 +196,49 @@ test("empty database: all migrations apply, the seeded pool is tagged 'quiz' and
     await client.$disconnect();
   }
 }, 60000);
+
+test("07C aborts atomically when data cannot be classified, and applies cleanly once it can", async () => {
+  const { client } = await freshSchema();
+  try {
+    await apply(client, before);
+    await seedOldSchema(client);
+    await apply(client, platform07b);
+    // A room of another game that still references a quiz: the migration must refuse to guess.
+    await client.$executeRawUnsafe(`UPDATE "Room" SET "gameKey" = 'other-game', "quizId" = '${ids.quiz}' WHERE "number" = 5`);
+    await expect(apply(client, [QUIZ_MODULE])).rejects.toThrow(/PLATFORM-07C/);
+    // Atomic: nothing of 07C exists, nothing was modified.
+    expect((await one(client, `SELECT to_regclass('"QuizMatchState"')::text AS t, to_regclass('"QuizRoomConfiguration"')::text AS c`))).toEqual({ t: null, c: null });
+    expect(await count(client, "GameSession")).toBe(4);
+    // A Quiz match without a snapshot is unclassifiable as well.
+    await client.$executeRawUnsafe(`UPDATE "Room" SET "gameKey" = 'quiz', "quizId" = NULL WHERE "number" = 5`);
+    const roomId = (await one(client, `SELECT "id" FROM "Room" WHERE "number" = 6`)).id;
+    await client.$executeRawUnsafe(`INSERT INTO "GameSession" ("id","roomCode","roomId","gameKey","status") VALUES ('${randomUUID()}','NOSNAP1','${roomId}','quiz','FINISHED')`);
+    await expect(apply(client, [QUIZ_MODULE])).rejects.toThrow(/PLATFORM-07C/);
+    await client.$executeRawUnsafe(`DELETE FROM "GameSession" WHERE "roomCode" = 'NOSNAP1'`);
+    await apply(client, [QUIZ_MODULE]);
+    expect(await count(client, "QuizMatchState")).toBe(4);
+  } finally {
+    await client.$disconnect();
+  }
+}, 60000);
+
+test("the SQL-only objects are verified against pg_catalog; a migration that drops one is detected", async () => {
+  const { client } = await freshSchema();
+  try {
+    await apply(client, all);
+    expect(await verifySqlObjects(client)).toEqual([]);
+    await client.$executeRawUnsafe(`DROP TRIGGER "QuizMatchState_snapshot_immutable" ON "QuizMatchState"`);
+    await client.$executeRawUnsafe(`DROP INDEX "GameSession_one_live_match_per_room"`);
+    await client.$executeRawUnsafe(`ALTER TABLE "QuizRoomConfiguration" DROP CONSTRAINT "QuizRoomConfiguration_gameKey_check"`);
+    await client.$executeRawUnsafe(`ALTER TABLE "GameSession" DROP CONSTRAINT "GameSession_roomId_gameKey_fkey"`);
+    expect((await verifySqlObjects(client)).map((object) => object.name).sort()).toEqual(["GameSession_one_live_match_per_room", "GameSession_roomId_gameKey_fkey", "QuizMatchState_snapshot_immutable", "QuizRoomConfiguration_gameKey_check"]);
+  } finally {
+    await client.$disconnect();
+  }
+}, 60000);
+
+test("only the known cosmetic Prisma difference is tolerated as drift", () => {
+  const known = 'ALTER TABLE "quizarena_test"."Room" ALTER COLUMN "updatedAt" DROP DEFAULT;';
+  expect(unexpectedDrift(["-- AlterTable", known, ""].join("\n"), "quizarena_test")).toEqual([]);
+  expect(unexpectedDrift(["-- AlterTable", 'DROP INDEX "GameSession_one_live_match_per_room";'].join("\n"), "quizarena_test")).toEqual(['DROP INDEX "GameSession_one_live_match_per_room";']);
+});

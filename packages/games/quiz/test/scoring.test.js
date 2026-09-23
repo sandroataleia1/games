@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { calculatePoints, isResponseWithinDeadline } from "../src/services/scoring.js";
+import { calculatePoints, isResponseWithinDeadline } from "../src/server/scoring.js";
 
 describe("calculatePoints", () => {
   const base = { basePoints: 1000, durationMs: 1000, isCorrect: true };
