@@ -1,11 +1,8 @@
-import { createGameRegistry } from "@quizarena/game-registry";
-import { quizGame } from "@quizarena/game-quiz";
+import { gameRegistry as registry } from "@quizarena/game-catalog";
 import { selectMostPlayedGames, selectRecentGames } from "./game-discovery.js";
 
-// Single composition root: every registered game module is listed here once.
-// A new game joins the portal by adding its module to this array - nothing
-// in the portal itself branches on which game it is.
-const registry = createGameRegistry([quizGame]);
+// The registry is composed once, in @quizarena/game-catalog, and shared with
+// the platform services - the portal never keeps its own list of games.
 
 // How many cards a discovery section shows once there are more games than
 // fit comfortably in a row. Not paginated - just capped.

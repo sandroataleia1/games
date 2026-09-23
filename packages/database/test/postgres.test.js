@@ -43,6 +43,7 @@ afterAll(async () => {
       await tx.participant.deleteMany({
         where: { gameSessionId: { in: ids } },
       });
+      await tx.matchParticipant.deleteMany({ where: { gameSessionId: { in: ids } } });
       await tx.gameSession.deleteMany({ where: { id: { in: ids } } });
       await tx.quiz.deleteMany({ where: { id: { in: ownedQuizIds } } });
       await tx.organizerSession.deleteMany({ where: { ownerId } });
@@ -244,6 +245,7 @@ test("uma conta gera no máximo uma participação por sessão; reentrada resume
   } finally {
     await client.organizerSession.deleteMany({ where: { ownerId: guest.user.id } });
     await client.participant.deleteMany({ where: { userId: guest.user.id } });
+    await client.matchParticipant.deleteMany({ where: { userId: guest.user.id } });
     await client.organizer.delete({ where: { id: guest.user.id } });
   }
 });
@@ -276,6 +278,7 @@ test("host que também joga conta como participante e permite iniciar sozinho; s
     const started = await database.sessions.startMatch(soloRoom.id);
     expect(started.matchPhase).toBe("QUESTION");
     await client.participant.deleteMany({ where: { gameSessionId: soloRoom.id } });
+    await client.matchParticipant.deleteMany({ where: { gameSessionId: soloRoom.id } });
     await client.gameSession.delete({ where: { id: soloRoom.id } });
 
     const organizeOnlyRoom = await database.organizers.createRoomFromPublished(quiz.id, `ORG${randomUUID().slice(0, 3).toUpperCase()}`, TEST_TOKEN, { hostUserId: host.user.id, visibility: "PRIVATE" });
@@ -283,6 +286,7 @@ test("host que também joga conta como participante e permite iniciar sozinho; s
     await client.gameSession.delete({ where: { id: organizeOnlyRoom.id } });
   } finally {
     await client.participant.deleteMany({ where: { userId: host.user.id } });
+    await client.matchParticipant.deleteMany({ where: { userId: host.user.id } });
     await client.gameSession.deleteMany({ where: { hostUserId: host.user.id } });
     await client.organizerSession.deleteMany({ where: { ownerId: host.user.id } });
     await client.organizer.delete({ where: { id: host.user.id } });

@@ -41,7 +41,7 @@ test("roomEnter/roomLeave identify a room by its fixed number, no display name n
   expect(lobbySchemas.roomLeave.parse({ roomNumber: 5 })).toEqual({ roomNumber: 5 });
 });
 test("public room DTO never carries tokens, hashes or internal identifiers", () => {
-  const room = { roomNumber: 3, status: "OPEN", quizId: "3b9a6b6a-9b1a-4c9e-8f8a-8b3c9a9d1e11", quizTitle: "Países", playerCount: 1, players: [{ accountId: "3b9a6b6a-9b1a-4c9e-8f8a-8b3c9a9d1e11", displayName: "Ana" }], serverTime: "2026-09-22T00:00:00.000Z" };
+  const room = { roomNumber: 3, gameKey: "quiz", status: "OPEN", quizId: "3b9a6b6a-9b1a-4c9e-8f8a-8b3c9a9d1e11", quizTitle: "Países", playerCount: 1, players: [{ accountId: "3b9a6b6a-9b1a-4c9e-8f8a-8b3c9a9d1e11", displayName: "Ana" }], serverTime: "2026-09-22T00:00:00.000Z" };
   expect(publicRoomSchema.parse(room)).toEqual(room);
   for (const leaked of ["hostToken", "hostTokenHash", "reconnectTokenHash", "hostUserId", "id", "currentSessionId"]) expect(publicRoomSchema.safeParse({ ...room, [leaked]: "x" }).success).toBe(false);
 });

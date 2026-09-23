@@ -266,6 +266,7 @@ afterAll(async () => {
       const sessionIds = sessions.map((s) => s.id);
       await cleanup.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
       await cleanup.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+      await cleanup.matchParticipant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
       await cleanup.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
       await cleanup.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
     }

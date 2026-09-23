@@ -2,6 +2,7 @@ import { createAdapter } from "@socket.io/redis-adapter";
 import { createClient } from "redis";
 import { withLock } from "./distributed-lock.js";
 import { DomainError } from "@quizarena/database";
+import { quizGame } from "@quizarena/game-quiz";
 import { EVENTS, lobbySchemas, publicRoomSchema, publicMatchStateSchema } from "@quizarena/contracts";
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 6;
@@ -9,6 +10,9 @@ const DEFAULT_RESULT_ADVANCE_MS = 45000;
 const GAME_LOCK_TTL_MS = 120000;
 const RATE_LIMITS = Object.freeze({ enter: [20, 60], resume: [10, 60], command: [60, 60] });
 const INDEX_CHANNEL = "rooms:index";
+// This runtime is the Quiz's realtime implementation (registry: implementation.realtime):
+// it only serves rooms whose game is the Quiz, and never reveals other games' rooms.
+const LOBBY_GAME_KEY = quizGame.definition.key;
 
 function channel(roomNumber) { return `room:${roomNumber}`; }
 function presenceKeyPrefix(roomNumber) { return `quizarena:room:presence:${roomNumber}:`; }
@@ -17,7 +21,7 @@ function gameLockKey(sessionId, round) { return `quizarena:lobby:game:lock:${ses
 function rateKey(prefix, kind, identity) { return `${prefix}:${kind}:${identity}`; }
 function memberKey(roomNumber, accountId) { return `${roomNumber}:${accountId}`; }
 function errorMessage(code) {
-  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala já está em uma partida.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", UNAUTHENTICATED: "É necessário entrar com sua conta.", PARTICIPANT_ALREADY_JOINED: "Você já está participando desta sala.", UNAUTHORIZED: "Sua conexão foi reiniciada. Aguarde reconectar e tente de novo.", INVALID_STATE: "A partida mudou de estado. Atualize a página.", NO_PARTICIPANTS: "É preciso pelo menos um participante para iniciar.", NO_QUESTIONS: "Este quiz não tem perguntas.", QUESTION_EXPIRED: "O tempo desta pergunta já acabou.", PARTICIPANT_NOT_ACTIVE: "Você não está ativo nesta sala no momento.", INVALID_ANSWER: "Não foi possível registrar essa resposta.", TRANSACTION_CONFLICT: "Muitas ações ao mesmo tempo. Tente de novo.", PARTICIPANT_INVALID: "Não foi possível identificar você nesta sala.", REFERENCE_CONFLICT: "Este item não existe mais.", COORDINATION_UNAVAILABLE: "O serviço está temporariamente indisponível.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
+  return { INVALID_PAYLOAD: "Dados inválidos.", QUIZ_NOT_FOUND: "Quiz não encontrado.", QUIZ_NOT_PUBLISHED: "O quiz não está publicado.", ROOM_NOT_FOUND: "Sala não encontrada.", ROOM_NOT_WAITING: "A sala já está em uma partida.", GAME_UNAVAILABLE: "Este jogo não está disponível no momento.", GAME_UNKNOWN: "Sala não encontrada.", GAME_ADAPTER_MISSING: "Este jogo não está disponível no momento.", RATE_LIMITED: "Muitas tentativas. Aguarde um pouco.", DEPENDENCY_UNAVAILABLE: "O serviço realtime está temporariamente indisponível.", UNAUTHENTICATED: "É necessário entrar com sua conta.", PARTICIPANT_ALREADY_JOINED: "Você já está participando desta sala.", UNAUTHORIZED: "Sua conexão foi reiniciada. Aguarde reconectar e tente de novo.", INVALID_STATE: "A partida mudou de estado. Atualize a página.", NO_PARTICIPANTS: "É preciso pelo menos um participante para iniciar.", NO_QUESTIONS: "Este quiz não tem perguntas.", QUESTION_EXPIRED: "O tempo desta pergunta já acabou.", PARTICIPANT_NOT_ACTIVE: "Você não está ativo nesta sala no momento.", INVALID_ANSWER: "Não foi possível registrar essa resposta.", TRANSACTION_CONFLICT: "Muitas ações ao mesmo tempo. Tente de novo.", PARTICIPANT_INVALID: "Não foi possível identificar você nesta sala.", REFERENCE_CONFLICT: "Este item não existe mais.", COORDINATION_UNAVAILABLE: "O serviço está temporariamente indisponível.", INTERNAL_ERROR: "Não foi possível concluir a operação." }[code] ?? "Não foi possível concluir a operação.";
 }
 function ackOk(data) { return { ok: true, data }; }
 function ackError(code) { return { ok: false, error: { code, message: errorMessage(code) } }; }
@@ -50,13 +54,12 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     await recoverActiveMatches();
   }
   async function recoverActiveMatches() {
-    const matches = await database.sessions.activeMatches();
-    for (const session of matches) {
-      if (!session.roomId) continue;
-      const room = await database.rooms.getById(session.roomId).catch(() => null);
-      if (!room) continue;
-      if (session.matchPhase === "QUESTION") scheduleQuestion(room.number, session.id, session.questionEndsAt);
-      else if (session.matchPhase === "QUESTION_RESULT") scheduleResultAdvance(room.number, session.id);
+    // The platform lists live matches from PostgreSQL and asks each game what
+    // is still pending; Redis plays no part in recovery.
+    for (const { match, room, recovery } of await database.platform.matches.recoverable()) {
+      if (match.gameKey !== LOBBY_GAME_KEY) continue;
+      if (recovery.kind === "question-deadline") scheduleQuestion(room.number, match.id, recovery.endsAt);
+      else if (recovery.kind === "result-advance") scheduleResultAdvance(room.number, match.id);
     }
   }
   async function ensureReady() {
@@ -91,7 +94,7 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
   async function publicRoomState(roomNumber) {
     const room = await database.rooms.get(roomNumber);
     const players = await listPresence(roomNumber);
-    return publicRoomSchema.parse({ roomNumber: room.number, status: room.status, quizId: room.quizId, quizTitle: room.quizTitle, playerCount: players.length, players, serverTime: new Date().toISOString() });
+    return publicRoomSchema.parse({ roomNumber: room.number, gameKey: room.gameKey, status: room.status, quizId: room.quizId, quizTitle: room.quizTitle, playerCount: players.length, players, serverTime: new Date().toISOString() });
   }
   async function broadcastRoom(roomNumber) {
     const current = await publicRoomState(roomNumber);
@@ -99,8 +102,9 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     return current;
   }
   async function roomIndex() {
-    const rooms = await database.rooms.list();
-    return Promise.all(rooms.map(async (room) => ({ ...room, playerCount: (await listPresence(room.number)).length })));
+    const rooms = await database.rooms.list({ gameKey: LOBBY_GAME_KEY });
+    // The public index never carries the internal id of the room's current match.
+    return Promise.all(rooms.map(async ({ currentSessionId, ...room }) => { void currentSessionId; return { ...room, playerCount: (await listPresence(room.number)).length }; }));
   }
   async function broadcastIndex() {
     io.to(INDEX_CHANNEL).emit(EVENTS.ROOM_INDEX, { rooms: await roomIndex() });
@@ -109,7 +113,7 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     await ensureReady();
     const current = await database.sessions.currentQuestion(sessionId);
     const question = publicQuestion(current.session);
-    return publicMatchStateSchema.parse({ schemaVersion: 1, roomNumber, phase: current.session.matchPhase, round: current.session.currentQuestionIndex == null ? 0 : current.session.currentQuestionIndex + 1, totalRounds: current.session.quizSnapshot.questions.length, question, answeredCount: current.answers.length, playerCount: current.session.participants.length, serverTime: new Date().toISOString() });
+    return publicMatchStateSchema.parse({ schemaVersion: 1, roomNumber, gameKey: current.session.gameKey, phase: current.session.matchPhase, round: current.session.currentQuestionIndex == null ? 0 : current.session.currentQuestionIndex + 1, totalRounds: current.session.quizSnapshot.questions.length, question, answeredCount: current.answers.length, playerCount: current.session.participants.length, serverTime: new Date().toISOString() });
   }
   async function publishMatch(roomNumber, sessionId, { emitQuestion = true } = {}) {
     const current = await matchState(roomNumber, sessionId);
@@ -170,7 +174,7 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
       if (previous) { clearTimeout(previous); timers.delete(sessionId); }
       io.to(channel(roomNumber)).emit(EVENTS.GAME_FINISHED, { ranking });
       io.to(channel(roomNumber)).emit(EVENTS.GAME_RANKING, ranking);
-      await database.rooms.reopen(session.roomId);
+      await database.rooms.reopen(session.roomId, sessionId);
       await broadcastRoom(roomNumber);
       await broadcastIndex();
       return { finished: true, ranking };
@@ -199,6 +203,8 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     if (!socket.data.organizer) throw new DomainError("UNAUTHENTICATED");
     const account = socket.data.organizer;
     const room = await database.rooms.get(parsed.data.roomNumber);
+    // A room of another game is indistinguishable from a missing one here.
+    if (room.gameKey !== LOBBY_GAME_KEY) throw new DomainError("ROOM_NOT_FOUND");
     await socket.join(channel(room.number));
     socket.data.roomNumber = room.number;
     claimMembership(room.number, account.id, socket);
@@ -218,7 +224,7 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     if (!finished) return;
     const previous = timers.get(sessionId);
     if (previous) { clearTimeout(previous); timers.delete(sessionId); }
-    if (finished.roomId) await database.rooms.reopen(finished.roomId).catch(() => {});
+    if (finished.roomId) await database.rooms.reopen(finished.roomId, sessionId).catch(() => {});
   }
   async function leaveRoomHandler(socket, payload) {
     const parsed = lobbySchemas.roomLeave.safeParse(payload);

@@ -4,6 +4,31 @@
 
 Quizzes usados por `GameSession` não podem ser removidos. Despublicar altera somente o conteúdo editável; sessões existentes continuam referenciando o snapshot imutável.
 
+## Plataforma: salas, partidas e participantes (PLATFORM-07B)
+
+Complementa as tabelas acima; decisões completas no [ADR-008](ADR-008-salas-partidas-e-participantes-genericos.md).
+
+| Entidade | Camada | Papel |
+| --- | --- | --- |
+| `Room` | plataforma | ponto de encontro numerado do pool: `gameKey`, ocupação `OPEN`/`PLAYING`, `currentSessionId`. `Room.quizId` é o tema do Quiz (legado) |
+| `GameSession` | plataforma (= partida) | uma execução: `gameKey` (igual ao da sala, garantido por FK composta), `status`, datas, `hostUserId` nullable. Colunas do Quiz (`quizId`, `quizSnapshot`, `matchPhase`, `currentQuestionIndex`, `questionStartedAt/EndsAt`) são nulas para outros jogos |
+| `MatchParticipant` | plataforma | quem participou: `userId` (identidade autenticada), `joinedAt`, `leftAt` (saída explícita). Único por `(partida, usuário)` |
+| `Participant` | módulo Quiz | estado do Quiz do participante (score, token, respostas); mesmo `id` do `MatchParticipant` |
+| `Answer` | módulo Quiz | resposta e pontos |
+
+```mermaid
+erDiagram
+  Room ||--o{ GameSession : "recebe partidas (1 viva por vez)"
+  GameSession ||--o{ MatchParticipant : registra
+  Organizer ||--o{ MatchParticipant : "identidade"
+  MatchParticipant ||--o| Participant : "estado do Quiz"
+  GameSession ||--o{ Answer : preserva
+```
+
+Invariantes no banco: `Room(id, gameKey)` único + FK `GameSession(roomId, gameKey)` com `RESTRICT` (partida não diverge da sala; a modalidade da sala não muda depois de ter partida); índice único parcial `GameSession(roomId)` para `WAITING`/`ACTIVE` (uma partida viva por sala); `MatchParticipant` único por `(partida, usuário)`; `Participant` ligado ao `MatchParticipant` da mesma partida por FK composta. `gameKey` é texto validado pelo registro em código, não enum.
+
+Não há tabela `Game`: o catálogo vive em `@quizarena/game-registry`.
+
 ## Projeções do lobby
 
 PostgreSQL guarda a confirmação de `GameSession`, o snapshot histórico e `Participant`, incluindo somente hashes de tokens. Redis usa o prefixo `quizarena:lobby:` para `room:<ROOM_CODE>` (DTO público), `presence:<ROOM_CODE>:<PARTICIPANT_ID>` (presença efêmera) e `rate:<KIND>:<IDENTITY>` (janelas atômicas). A projeção e a presença usam `LOBBY_TTL_SECONDS`; rate limits usam TTL próprio. Redis não é fonte permanente e a projeção é reconstruída do PostgreSQL.
@@ -77,10 +102,12 @@ Geração, validação de posse, autenticação, revogação e transporte dos to
 
 ## API do pacote
 
-`createDatabase({ databaseUrl })` retorna:
+`createDatabase({ databaseUrl, registry?, adapters? })` (padrões: catálogo compartilhado e adaptador do Quiz) retorna:
 
 - `quizzes.createDraft(input)`, `getById(id)`, `addQuestion(id, input)`, `publish(id)`, `archive(id)`, `listByStatus(status)`, `buildQuizSnapshot(id)`.
 - `sessions.create({ roomCode, snapshot, hostToken })`, `getById(id)`, `getByCode(code)`, `registerParticipant({ gameSessionId, displayName, reconnectToken })`, `registerAnswer(decision)`, `finish(id)`.
+- `rooms.list({ gameKey })`, `get(número)`, `startMatch(número, participantes)`, `selectTheme(...)`, `reopen(salaId, partidaId)`.
+- `platform.{rooms, matches, participants, policy, adapters}`: serviços genéricos da plataforma (ADR-008).
 - `close()`: desconecta Prisma.
 
 `createDatabaseHealthProbe(databaseUrl)` expõe apenas `check()` e `close()`. Importar o pacote não abre conexão. Prisma não é exportado pela API pública.

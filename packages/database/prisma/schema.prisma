@@ -72,6 +72,7 @@ model Organizer {
   sessions     OrganizerSession[]
   hostedGames  GameSession[]
   participations Participant[]
+  matchParticipations MatchParticipant[]
 
   @@unique([email])
 }
@@ -121,20 +122,35 @@ model QuestionOption {
 model Room {
   id            String @id @default(uuid()) @db.Uuid
   number        Int @unique
+  // Stable key of the registered game module that runs in this room
+  // (packages/game-registry). Validated in code, never a DB enum, and
+  // immutable once the room has matches (composite FK from GameSession).
+  gameKey       String
   status        RoomStatus @default(OPEN)
+  // Legacy, Quiz-specific: the quiz picked as the room's theme.
   quizId        String? @db.Uuid
   currentSessionId String? @db.Uuid @unique
   updatedAt     DateTime @updatedAt @db.Timestamptz(3)
   quiz          Quiz? @relation(fields: [quizId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   currentSession GameSession? @relation("RoomCurrentSession", fields: [currentSessionId], references: [id], onDelete: SetNull, onUpdate: Restrict)
   sessions      GameSession[] @relation("RoomSessions")
+
+  @@unique([id, gameKey])
+  @@index([gameKey, number])
 }
 
 model GameSession {
   id            String @id @default(uuid()) @db.Uuid
   roomCode      String @unique
   roomId        String? @db.Uuid
-  quizId        String @db.Uuid
+  // The match's game, always equal to its room's gameKey when it has a
+  // room (composite FK (roomId, gameKey) -> Room(id, gameKey), raw SQL in
+  // the migration). Stored here because legacy hosted matches have no room.
+  gameKey       String
+  // Legacy Quiz state kept on the match row: quizId, quizSnapshot, matchPhase,
+  // currentQuestionIndex, questionStartedAt, questionEndsAt. Nullable so other
+  // games can store matches; written only by the Quiz adapter/service (ADR-008).
+  quizId        String? @db.Uuid
   status        GameSessionStatus @default(WAITING)
   matchPhase    MatchPhase @default(LOBBY)
   currentQuestionIndex Int?
@@ -143,27 +159,53 @@ model GameSession {
   hostTokenHash String?
   hostUserId    String? @db.Uuid
   visibility    RoomVisibility @default(PUBLIC)
-  quizSnapshot  Json @db.JsonB
+  quizSnapshot  Json? @db.JsonB
   createdAt     DateTime @default(now()) @db.Timestamptz(3)
   startedAt     DateTime? @db.Timestamptz(3)
   finishedAt    DateTime? @db.Timestamptz(3)
   cancelledAt   DateTime? @db.Timestamptz(3)
-  quiz          Quiz @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  quiz          Quiz? @relation(fields: [quizId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   host          Organizer? @relation(fields: [hostUserId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   room          Room? @relation("RoomSessions", fields: [roomId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   currentForRoom Room? @relation("RoomCurrentSession")
   participants  Participant[]
+  matchParticipants MatchParticipant[]
   answers       Answer[]
 
   @@index([status, createdAt])
   @@index([quizId])
   @@index([quizId, visibility, status])
   @@index([roomId])
+  @@index([gameKey, status])
+}
+
+// Platform-level participation in a match: who took part and when. Nothing
+// game-specific (no score, answers or ranking) lives here - that belongs to
+// the game's own state (Participant, for the Quiz), which shares this id.
+model MatchParticipant {
+  id            String @id @default(uuid()) @db.Uuid
+  gameSessionId String @db.Uuid
+  // The authenticated identity (still named Organizer). NULL only for
+  // pre-account legacy participants; every new participation has one.
+  userId        String? @db.Uuid
+  joinedAt      DateTime @default(now()) @db.Timestamptz(3)
+  // Explicit leave. A dropped connection is NOT a leave (see Participant.disconnectedAt).
+  leftAt        DateTime? @db.Timestamptz(3)
+  gameSession   GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  user          Organizer? @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  quizParticipant Participant?
+
+  @@unique([gameSessionId, userId])
+  @@unique([id, gameSessionId])
+  @@index([userId])
 }
 
 model Participant {
   id                 String @id @default(uuid()) @db.Uuid
   gameSessionId      String @db.Uuid
+  // Same id as its MatchParticipant; userId/joinedAt below are legacy copies
+  // of the platform record, written together by the platform service only.
+  matchParticipantId String @unique @db.Uuid
   userId             String? @db.Uuid
   displayName        String
   normalizedName     String
@@ -174,10 +216,12 @@ model Participant {
   disconnectedAt     DateTime? @db.Timestamptz(3)
   gameSession        GameSession @relation(fields: [gameSessionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   user               Organizer? @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  matchParticipant   MatchParticipant @relation(fields: [matchParticipantId, gameSessionId], references: [id, gameSessionId], onDelete: Restrict, onUpdate: Restrict)
   answers            Answer[]
 
   @@unique([gameSessionId, userId])
   @@unique([id, gameSessionId])
+  @@unique([matchParticipantId, gameSessionId])
   @@index([gameSessionId, normalizedName])
 }
 

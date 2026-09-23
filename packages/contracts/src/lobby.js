@@ -23,6 +23,7 @@ export const roomStatusSchema = z.enum(["OPEN", "PLAYING"]);
 
 export const publicRoomSchema = z.object({
   roomNumber,
+  gameKey: z.string().min(1),
   status: roomStatusSchema,
   quizId: z.uuid().nullable(),
   quizTitle: z.string().nullable(),
@@ -58,7 +59,7 @@ export const errorCodes = Object.freeze([
   "RATE_LIMITED", "DEPENDENCY_UNAVAILABLE", "INTERNAL_ERROR", "UNAUTHORIZED", "INVALID_TOKEN",
   "SESSION_NOT_FOUND", "INVALID_STATE", "NO_PARTICIPANTS", "NO_QUESTIONS", "QUESTION_EXPIRED",
   "ANSWER_ALREADY_SUBMITTED", "INVALID_ANSWER", "PARTICIPANT_NOT_ACTIVE", "COORDINATION_UNAVAILABLE",
-  "UNAUTHENTICATED", "PARTICIPANT_ALREADY_JOINED",
+  "UNAUTHENTICATED", "PARTICIPANT_ALREADY_JOINED", "GAME_UNKNOWN", "GAME_UNAVAILABLE", "GAME_ADAPTER_MISSING",
 ]);
 
 export const matchPhaseSchema = z.enum(["LOBBY", "QUESTION", "QUESTION_RESULT", "FINISHED"]);
@@ -76,6 +77,7 @@ export const publicQuestionSchema = z.object({
 export const publicMatchStateSchema = z.object({
   schemaVersion: z.literal(1),
   roomNumber,
+  gameKey: z.string().min(1),
   phase: matchPhaseSchema,
   round: z.number().int().nonnegative(),
   totalRounds: z.number().int().nonnegative(),

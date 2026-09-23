@@ -16,6 +16,9 @@
   "dependencies": {
     "@prisma/client": "6.19.3",
     "@quizarena/contracts": "workspace:*",
+    "@quizarena/game-catalog": "workspace:*",
+    "@quizarena/game-quiz": "workspace:*",
+    "@quizarena/game-registry": "workspace:*",
     "dotenv": "^17.2.2",
     "zod": "^4.1.12"
   },

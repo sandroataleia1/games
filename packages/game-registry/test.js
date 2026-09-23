@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { createGameRegistry, defineGameModule, GAME_STATUS, GAME_CATEGORIES, gameCategorySchema, gameDefinitionSchema } from "./src/index.js";
+import { createGameRegistry, defineGameModule, defineGameServerAdapter, createServerAdapterRegistry, SERVER_ADAPTER_METHODS, GAME_STATUS, GAME_CATEGORIES, gameCategorySchema, gameDefinitionSchema } from "./src/index.js";
 
 const baseDefinition = {
   key: "quiz",
@@ -194,4 +194,49 @@ test("card artwork must be an internal path, never an external URL", () => {
   expect(gameDefinitionSchema.parse(visual("/assets/x.png")).visual.art).toBe("/assets/x.png");
   expect(() => gameDefinitionSchema.parse(visual("https://evil.test/x.png"))).toThrow();
   expect(() => gameDefinitionSchema.parse(visual("//evil.test/x.png"))).toThrow();
+});
+
+// --- Server adapters (PLATFORM-07B) -----------------------------------------
+
+const withRealtime = (definitionOverrides = {}) => moduleWith({ implementation: { web: "apps/web/x", realtime: "apps/realtime/x" } }, definitionOverrides);
+const adapterFor = (gameKey, overrides = {}) => ({ gameKey, prepareMatch: async () => ({ columns: {} }), createParticipantState: async () => {}, recoverMatch: () => null, ...overrides });
+
+test("the adapter contract is exactly the methods the platform calls", () => {
+  expect(SERVER_ADAPTER_METHODS).toEqual(["prepareMatch", "createParticipantState", "recoverMatch"]);
+});
+
+test("an adapter must implement every method and cannot carry extras", () => {
+  for (const method of SERVER_ADAPTER_METHODS) expect(() => defineGameServerAdapter(adapterFor("quiz", { [method]: undefined }))).toThrow();
+  expect(() => defineGameServerAdapter(adapterFor("quiz", { handleCommand: () => {} }))).toThrow();
+  expect(Object.isFrozen(defineGameServerAdapter(adapterFor("quiz")))).toBe(true);
+});
+
+test("the adapter registry resolves adapters by gameKey and answers null for a game without one", () => {
+  const registry = createGameRegistry([withRealtime()]);
+  const adapters = createServerAdapterRegistry({ registry, adapters: [adapterFor("quiz")] });
+  expect(adapters.get("quiz").gameKey).toBe("quiz");
+  expect(adapters.has("quiz")).toBe(true);
+  expect(adapters.get("other")).toBeNull();
+});
+
+test("an adapter for a game that is not registered is refused", () => {
+  const registry = createGameRegistry([withRealtime()]);
+  expect(() => createServerAdapterRegistry({ registry, adapters: [adapterFor("quiz"), adapterFor("ghost")] })).toThrow(/ghost/);
+});
+
+test("two adapters for the same game are refused", () => {
+  const registry = createGameRegistry([withRealtime()]);
+  expect(() => createServerAdapterRegistry({ registry, adapters: [adapterFor("quiz"), adapterFor("quiz")] })).toThrow(/duplicado/);
+});
+
+test("an AVAILABLE game with a realtime implementation but no adapter fails at startup", () => {
+  const registry = createGameRegistry([withRealtime()]);
+  expect(() => createServerAdapterRegistry({ registry, adapters: [] })).toThrow(/quiz/);
+});
+
+test("games that are not AVAILABLE, or have no realtime implementation, need no adapter", () => {
+  const soon = withRealtime({ key: "soon", slug: "soon", name: "Soon", status: GAME_STATUS.COMING_SOON });
+  const webOnly = moduleWith({}, { key: "web-only", slug: "web-only", name: "Web only" });
+  const registry = createGameRegistry([soon, webOnly]);
+  expect(() => createServerAdapterRegistry({ registry, adapters: [] })).not.toThrow();
 });

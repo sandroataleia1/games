@@ -6,6 +6,7 @@ import { sessionRepository } from "../repositories/sessions.js";
 import { quizRepository } from "../repositories/quizzes.js";
 import { requireQuiz } from "./quizzes.js";
 import { hashToken, verifyToken } from "./tokens.js";
+import { QUIZ_GAME_KEY } from "../games/quiz-key.js";
 import { calculatePoints, isResponseWithinDeadline } from "./scoring.js";
 import {
   validateSnapshot,
@@ -48,7 +49,8 @@ const decisionSchema = z
 const matchAnswerSchema = z.object({ gameSessionId: idSchema, participantId: idSchema, questionRef: idSchema, selectedOptionRef: idSchema }).strict();
 async function requireSession(repo, id) {
   const session = await repo.get(parse(idSchema, id, "SESSION_INVALID"));
-  if (!session) throw new DomainError("SESSION_NOT_FOUND");
+  // This service runs Quiz matches only; another game's match is not its business.
+  if (!session || session.gameKey !== QUIZ_GAME_KEY) throw new DomainError("SESSION_NOT_FOUND");
   return session;
 }
 export function createSessionService(client, { maxPlayers = 20 } = {}) {
@@ -142,6 +144,7 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
           return sessionDTO(
             await sessionRepository(tx).create({
               roomCode: code,
+              gameKey: QUIZ_GAME_KEY,
               quizId: validated.quizId,
               quizSnapshot: validated,
               hostTokenHash,

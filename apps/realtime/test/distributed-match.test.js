@@ -60,6 +60,7 @@ async function resetRoom(number) {
     const sessionIds = sessions.map((s) => s.id);
     await client.answer.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.participant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
+    await client.matchParticipant.deleteMany({ where: { gameSessionId: { in: sessionIds } } });
     await client.room.update({ where: { id: room.id }, data: { status: "OPEN", quizId: null, currentSessionId: null } });
     await client.gameSession.deleteMany({ where: { id: { in: sessionIds } } });
   }

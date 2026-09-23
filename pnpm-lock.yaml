@@ -38,6 +38,9 @@ importers:
       '@quizarena/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@quizarena/game-quiz':
+        specifier: workspace:*
+        version: link:../../packages/games/quiz
       '@socket.io/redis-adapter':
         specifier: ^8.3.0
         version: 8.3.0(socket.io-adapter@2.5.8)
@@ -72,6 +75,9 @@ importers:
       '@quizarena/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@quizarena/game-catalog':
+        specifier: workspace:*
+        version: link:../../packages/game-catalog
       '@quizarena/game-quiz':
         specifier: workspace:*
         version: link:../../packages/games/quiz
@@ -115,6 +121,15 @@ importers:
       '@quizarena/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@quizarena/game-catalog':
+        specifier: workspace:*
+        version: link:../game-catalog
+      '@quizarena/game-quiz':
+        specifier: workspace:*
+        version: link:../games/quiz
+      '@quizarena/game-registry':
+        specifier: workspace:*
+        version: link:../game-registry
       dotenv:
         specifier: ^17.2.2
         version: 17.4.2
@@ -125,6 +140,15 @@ importers:
       prisma:
         specifier: 6.19.3
         version: 6.19.3(typescript@6.0.3)
+
+  packages/game-catalog:
+    dependencies:
+      '@quizarena/game-quiz':
+        specifier: workspace:*
+        version: link:../games/quiz
+      '@quizarena/game-registry':
+        specifier: workspace:*
+        version: link:../game-registry
 
   packages/game-registry:
     dependencies:
