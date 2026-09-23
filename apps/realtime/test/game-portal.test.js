@@ -135,6 +135,25 @@ test("uma conta sozinha na sala inicia a partida, joga e vence sua própria part
   expect((await database.rooms.get(ROOM)).status).toBe("OPEN");
 });
 
+test("sair da sala jogando sozinho finaliza a partida e reabre a sala, sem precisar avançar até o fim", async () => {
+  const { database, port } = await instance();
+  const ROOM = nextRoom();
+  const host = await account(database, "SolitarioSai");
+  const quiz = await onePublishedQuiz(database, host.user.id);
+  const hostSocket = await connect(port, host.token);
+  expect((await command(hostSocket, EVENTS.ROOM_ENTER, { roomNumber: ROOM })).ok).toBe(true);
+  await command(hostSocket, EVENTS.THEME_SELECT, { roomNumber: ROOM, quizId: quiz.id });
+  const started = await command(hostSocket, EVENTS.MATCH_START, { roomNumber: ROOM });
+  expect(started.ok).toBe(true);
+  expect((await database.rooms.get(ROOM)).status).toBe("PLAYING");
+
+  const left = await command(hostSocket, EVENTS.ROOM_LEAVE, { roomNumber: ROOM });
+  expect(left.ok).toBe(true);
+  const afterLeave = await database.rooms.get(ROOM);
+  expect(afterLeave.status).toBe("OPEN");
+  expect(afterLeave.currentSessionId).toBeNull();
+});
+
 test("jogador que reconecta em outro socket não perde a participação e ainda avança a partida", async () => {
   const { database, port } = await instance();
   const ROOM = nextRoom();

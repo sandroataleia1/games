@@ -76,7 +76,13 @@ try {
   // No owner: anyone present can start. Solo match with a single question finishes immediately.
   await hostPage.getByRole("button", { name: "Iniciar partida" }).click();
   await hostPage.getByText("Pergunta única").waitFor();
+
+  // Clicking an option only selects it; answering requires an explicit confirm.
   await hostPage.getByRole("button", { name: "Certa" }).click();
+  await hostPage.getByText("Toque em confirmar", { exact: false }).waitFor();
+  const answerLockedIn = await hostPage.getByText("Resposta enviada. Aguarde o resultado.").count();
+  if (answerLockedIn !== 0) throw new Error("answer submitted before confirmation");
+  await hostPage.getByRole("button", { name: "Confirmar resposta" }).click();
   await hostPage.getByText(/Você acertou|Quase lá/).waitFor({ timeout: 10000 });
   await hostPage.getByRole("button", { name: "Avançar" }).click();
   await hostPage.getByText("Anfitriã Salas venceu!", { exact: false }).waitFor();
@@ -86,6 +92,16 @@ try {
   await hostPage.getByRole("button", { name: "Sair da sala" }).click();
   await hostPage.waitForURL("**/jogos/quiz");
   await hostPage.getByRole("heading", { name: "Sala 1", exact: true }).waitFor();
+
+  // Leaving mid-match while playing solo must finish the match, not leave the room stuck PLAYING.
+  // Room 1 still has its theme from before (reopening a room keeps the theme).
+  await hostPage.getByRole("link", { name: "Entrar" }).first().click();
+  await hostPage.waitForURL("**/salas/1");
+  await hostPage.getByRole("button", { name: "Iniciar partida" }).click();
+  await hostPage.getByText("Pergunta única").waitFor();
+  await hostPage.getByRole("button", { name: "Sair da sala" }).click();
+  await hostPage.waitForURL("**/jogos/quiz");
+  await hostPage.getByText("Aberta", { exact: true }).first().waitFor();
 
   // Multiplayer: a second real account enters the same fixed room, no ownership required.
   await guestPage.goto(base + "/cadastro");
@@ -105,6 +121,7 @@ try {
   await hostPage.getByRole("button", { name: "Iniciar partida" }).click();
   await guestPage.getByText("Pergunta única").waitFor({ timeout: 10000 });
   await guestPage.getByRole("button", { name: "Errada" }).click();
+  await guestPage.getByRole("button", { name: "Confirmar resposta" }).click();
   await guestPage.getByText(/Você acertou|Quase lá/).waitFor({ timeout: 10000 });
   await guestPage.getByRole("button", { name: "Avançar" }).click();
   const finalRanking = await guestPage.locator("ol").innerText();

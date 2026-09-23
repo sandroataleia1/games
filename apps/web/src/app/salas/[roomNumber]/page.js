@@ -21,6 +21,7 @@ export default function RoomLobby() {
   const [match, setMatch] = useState(null);
   const [quizzes, setQuizzes] = useState([]);
   const [selected, setSelected] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
   const [result, setResult] = useState(null);
   const [ranking, setRanking] = useState([]);
   const [error, setError] = useState("");
@@ -62,6 +63,7 @@ export default function RoomLobby() {
     // A pergunta persistida mudou; a seleção pertence somente à rodada anterior.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected("");
+    setConfirmed(false);
   }, [match?.question?.id]);
 
   async function selectTheme(quizId) {
@@ -74,11 +76,15 @@ export default function RoomLobby() {
     if (response?.ok) setMatch(response.data.match);
     else setError(response?.error?.message || "Não foi possível iniciar a partida.");
   }
-  async function answer(optionId) {
-    if (!ready || !match?.question || selected) return;
+  function selectOption(optionId) {
+    if (!ready || !match?.question || confirmed) return;
     setSelected(optionId);
-    const response = await clientRef.current.command(EVENTS.GAME_ANSWER, { roomNumber, questionId: match.question.id, optionId });
-    if (!response?.ok) { setSelected(""); setError(response?.error?.message || "Não foi possível enviar a resposta."); }
+  }
+  async function confirmAnswer() {
+    if (!ready || !match?.question || !selected || confirmed) return;
+    setConfirmed(true);
+    const response = await clientRef.current.command(EVENTS.GAME_ANSWER, { roomNumber, questionId: match.question.id, optionId: selected });
+    if (!response?.ok) { setConfirmed(false); setError(response?.error?.message || "Não foi possível enviar a resposta."); }
   }
   async function next() {
     if (!ready) return;
@@ -94,6 +100,7 @@ export default function RoomLobby() {
     setResult(null);
     setRanking([]);
     setSelected("");
+    setConfirmed(false);
   }
 
   if (!checked || !user) return null;
@@ -148,10 +155,11 @@ export default function RoomLobby() {
             <h1 id="room-title">{match.question.prompt}</h1>
             <div className={styles.answerGrid}>
               {match.question.options.map((option) => (
-                <button type="button" className={`${styles.answerTile} ${selected === option.id ? styles.selectedAnswer : ""}`} key={option.id} disabled={!ready || Boolean(selected)} onClick={() => answer(option.id)}>{option.text}</button>
+                <button type="button" className={`${styles.answerTile} ${selected === option.id ? styles.selectedAnswer : ""}`} key={option.id} disabled={!ready || confirmed} onClick={() => selectOption(option.id)}>{option.text}</button>
               ))}
             </div>
-            <p className={styles.note}>{selected ? "Resposta enviada. Aguarde o resultado." : "Escolha uma alternativa."}</p>
+            {selected && !confirmed && <button type="button" className={styles.primary} disabled={!ready} onClick={confirmAnswer}>Confirmar resposta</button>}
+            <p className={styles.note}>{confirmed ? "Resposta enviada. Aguarde o resultado." : selected ? "Toque em confirmar para enviar sua resposta." : "Escolha uma alternativa."}</p>
           </div>
         )}
 

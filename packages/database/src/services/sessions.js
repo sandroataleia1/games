@@ -256,6 +256,15 @@ export function createSessionService(client, { maxPlayers = 20 } = {}) {
         return participantDTO(await repo.updatePresence(participantId, gameSessionId, false));
       });
     },
+    async abandonIfEmpty(id) {
+      return transaction(client, async (tx) => {
+        const repo = sessionRepository(tx);
+        const session = await requireSession(repo, id);
+        if (session.status !== "ACTIVE") return null;
+        if (await repo.activeParticipants(id)) return null;
+        return sessionDTO(await repo.finishMatch(id));
+      });
+    },
     async leaveParticipant(gameSessionId, participantId) {
       return transaction(client, async (tx) => {
         const repo = sessionRepository(tx);

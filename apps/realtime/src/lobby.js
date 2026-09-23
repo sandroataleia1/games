@@ -177,6 +177,13 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     await broadcastIndex();
     return ackOk({ room: state, match, playing: Boolean(socket.data.player) });
   }
+  async function finishIfAbandoned(sessionId) {
+    const finished = await database.sessions.abandonIfEmpty(sessionId).catch(() => null);
+    if (!finished) return;
+    const previous = timers.get(sessionId);
+    if (previous) { clearTimeout(previous); timers.delete(sessionId); }
+    if (finished.roomId) await database.rooms.reopen(finished.roomId).catch(() => {});
+  }
   async function leaveRoomHandler(socket, payload) {
     const parsed = lobbySchemas.roomLeave.safeParse(payload);
     if (!parsed.success || socket.data.roomNumber !== parsed.data.roomNumber) throw new DomainError("INVALID_PAYLOAD");
@@ -184,7 +191,13 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     const roomNumber = socket.data.roomNumber;
     if (account && activeMembers.get(memberKey(roomNumber, account.id)) === socket) activeMembers.delete(memberKey(roomNumber, account.id));
     if (account) await clearPresence(roomNumber, account.id);
-    if (socket.data.player) { try { await database.sessions.disconnectParticipant(socket.data.player.gameSessionId, socket.data.player.participantId); } catch { /* best effort */ } }
+    if (socket.data.player) {
+      const { gameSessionId, participantId } = socket.data.player;
+      try { await database.sessions.disconnectParticipant(gameSessionId, participantId); } catch { /* best effort */ }
+      // Nobody left playing: finish the match now instead of leaving the room
+      // stuck PLAYING against an abandoned session forever.
+      await finishIfAbandoned(gameSessionId);
+    }
     socket.data.roomNumber = null;
     socket.data.player = null;
     await socket.leave(channel(roomNumber));
@@ -302,6 +315,8 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
           activeMembers.delete(memberKey(roomNumber, account.id));
           await clearPresence(roomNumber, account.id);
         }
+        // Not a real leave, just a dropped connection (refresh, network blip):
+        // keep the match alive so reconnecting resumes it, per resumePresenceForAccount.
         if (socket.data.player) await database.sessions.disconnectParticipant(socket.data.player.gameSessionId, socket.data.player.participantId);
         await broadcastRoom(roomNumber);
         await broadcastIndex();
