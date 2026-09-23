@@ -131,8 +131,10 @@ test("uma conta sozinha na sala inicia a partida, joga e vence sua própria part
   const seenQuestion = await question;
   const answer = await command(hostSocket, EVENTS.GAME_ANSWER, { roomNumber: ROOM, questionId: seenQuestion.id, optionId: seenQuestion.options[0].id });
   expect(answer.ok).toBe(true);
+  // The only participant answered, so the result is already showing - no
+  // waiting for the question's deadline.
   const room = await database.rooms.get(ROOM);
-  await database.sessions.questionResult(room.currentSessionId);
+  expect((await database.sessions.getById(room.currentSessionId)).matchPhase).toBe("QUESTION_RESULT");
   const finished = await command(hostSocket, EVENTS.GAME_NEXT, { roomNumber: ROOM });
   expect(finished.ok).toBe(true);
   expect(finished.data.finished).toBe(true);

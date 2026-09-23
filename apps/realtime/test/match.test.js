@@ -63,7 +63,8 @@ test("a room's theme is chosen, any present player can start it, and the server 
   expect(answer.ok).toBe(true);
   expect(answer.data.answered).toBe(true);
   const duplicate = await command(player, EVENTS.GAME_ANSWER, { roomNumber: ROOM, questionId: started.data.match.question.id, optionId: started.data.match.question.options[0].id });
-  expect(duplicate.error.code).toBe("ANSWER_ALREADY_SUBMITTED");
+  // The lone participant already answered, so the round closed immediately.
+  expect(duplicate.error.code).toBe("INVALID_STATE");
 
   // A non-participant (host never became a player here) cannot advance the round.
   const forbidden = await command(host, EVENTS.GAME_NEXT, { roomNumber: ROOM });
@@ -71,7 +72,7 @@ test("a room's theme is chosen, any present player can start it, and the server 
   expect(forbidden.error.message).not.toBe("Não foi possível concluir a operação.");
 
   const roomAfterStart = await database.rooms.get(ROOM);
-  await database.sessions.questionResult(roomAfterStart.currentSessionId);
+  expect((await database.sessions.getById(roomAfterStart.currentSessionId)).matchPhase).toBe("QUESTION_RESULT");
   const next = await command(player, EVENTS.GAME_NEXT, { roomNumber: ROOM });
   expect(next.ok).toBe(true);
   expect(next.data.match.round).toBe(2);

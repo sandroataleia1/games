@@ -117,11 +117,11 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     if (emitQuestion && current.question) io.to(channel(roomNumber)).emit(EVENTS.GAME_QUESTION, current.question);
     return current;
   }
-  async function finishQuestion(roomNumber, sessionId) {
+  async function finishQuestion(roomNumber, sessionId, { force = false } = {}) {
     const session = await database.sessions.getById(sessionId).catch(() => null);
     if (!session || session.matchPhase !== "QUESTION") return;
     const round = session.currentQuestionIndex + 1;
-    if (session.questionEndsAt && Date.now() < new Date(session.questionEndsAt).getTime()) { scheduleQuestion(roomNumber, sessionId, session.questionEndsAt); return; }
+    if (!force && session.questionEndsAt && Date.now() < new Date(session.questionEndsAt).getTime()) { scheduleQuestion(roomNumber, sessionId, session.questionEndsAt); return; }
     const locked = await withLock(publisher, gameLockKey(sessionId, round), GAME_LOCK_TTL_MS, async () => {
       const current = await database.sessions.getById(sessionId).catch(() => null);
       if (!current || current.matchPhase !== "QUESTION") return;
@@ -296,6 +296,14 @@ export function createLobbyRuntime({ io, database, redisUrl, ttlSeconds = DEFAUL
     if (!parsed.success) throw new DomainError("INVALID_PAYLOAD");
     if (!(await ensurePlayer(socket, parsed.data.roomNumber))) throw new DomainError("UNAUTHORIZED");
     const result = await database.sessions.answer({ gameSessionId: socket.data.player.gameSessionId, participantId: socket.data.player.participantId, questionRef: parsed.data.questionId, selectedOptionRef: parsed.data.optionId });
+    // Nobody left to wait for: show the result right away instead of holding
+    // the room until the question's deadline. The deadline stays only as the
+    // safety net for players who never answer.
+    const { session, answers } = await database.sessions.currentQuestion(socket.data.player.gameSessionId);
+    const activeIds = session.participants.filter((participant) => !participant.disconnectedAt).map((participant) => participant.id);
+    if (activeIds.length > 0 && activeIds.every((id) => answers.some((answer) => answer.participantId === id))) {
+      await finishQuestion(parsed.data.roomNumber, socket.data.player.gameSessionId, { force: true }).catch((error) => logger.error(`[lobby] early finish: ${mapError(error)}`));
+    }
     return ackOk({ answered: true, pointsAwarded: result.pointsAwarded });
   }
   async function nextGame(socket, payload) {
