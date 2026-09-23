@@ -45,7 +45,7 @@ export default function QuizGame() {
       <main className={styles.shell}>
         <section className={styles.board} aria-labelledby="quiz-title">
           <header className={styles.header}>
-            <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena</span></div>
+            <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>MultyGames</span></div>
             <nav className={styles.navLinks}><Link href="/">Início</Link></nav>
           </header>
           <div className={styles.intro}>
@@ -58,7 +58,7 @@ export default function QuizGame() {
               e qualquer pessoa na sala pode iniciar a partida.
             </p>
             <p className={styles.description}>
-              Para ver as salas disponíveis e entrar em uma, é necessário ter uma conta na QuizArena.
+              Para ver as salas disponíveis e entrar em uma, é necessário ter uma conta na MultyGames.
             </p>
           </div>
           <div className={styles.actions} style={{ borderTop: "none", paddingTop: 0 }}>
@@ -74,7 +74,7 @@ export default function QuizGame() {
     <main className={styles.shell}>
       <section className={styles.board} aria-labelledby="quiz-title">
         <header className={styles.header}>
-          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena / Quiz</span></div>
+          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>MultyGames / Quiz</span></div>
           <div role="status" aria-live="polite" className={`${styles.status} ${styles[status]}`}>
             <span className={styles.statusDot} aria-hidden="true" />
             {status === "connected" ? "Servidor conectado" : status === "reconnecting" ? "Reconectando" : "Conectando"}

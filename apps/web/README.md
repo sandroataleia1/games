@@ -1,4 +1,4 @@
-# QuizArena Web
+# MultyGames Web
 
 Next.js App Router em JavaScript. Código em `src/app`, CSS Modules e cliente Socket.IO isolado em `src/lib`.
 

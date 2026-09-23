@@ -1,6 +1,6 @@
 // Service worker mínimo: só torna o app instalável e acelera a casca
 // estática (JS/CSS/ícones). Nunca faz cache de páginas, /api ou
-// socket.io - o QuizArena é uma aplicação em tempo real, dados
+// socket.io - a MultyGames é uma plataforma em tempo real, dados
 // desatualizados aqui causariam sessões/partidas quebradas.
 const CACHE = "quizarena-shell-v1";
 const CACHEABLE = [/^\/_next\/static\//, /^\/icons\//];

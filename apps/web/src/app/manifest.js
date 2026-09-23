@@ -1,8 +1,8 @@
 export default function manifest() {
   return {
-    name: "QuizArena",
-    short_name: "QuizArena",
-    description: "A plataforma de jogos em grupo. Quiz ao vivo na TV e no celular.",
+    name: "MultyGames",
+    short_name: "MultyGames",
+    description: "Jogos para curtir sozinho ou com a turma.",
     start_url: "/",
     scope: "/",
     display: "standalone",

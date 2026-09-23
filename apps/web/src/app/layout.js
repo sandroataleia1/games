@@ -6,12 +6,12 @@ const display = Baloo_2({ subsets: ["latin"], weight: ["600", "700", "800"], var
 const body = Manrope({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-body" });
 
 export const metadata = {
-  title: "QuizArena",
-  description: "A plataforma de jogos em grupo. Quiz ao vivo na TV e no celular.",
-  applicationName: "QuizArena",
+  title: "MultyGames",
+  description: "Jogos para curtir sozinho ou com a turma.",
+  applicationName: "MultyGames",
   appleWebApp: {
     capable: true,
-    title: "QuizArena",
+    title: "MultyGames",
     statusBarStyle: "black-translucent",
   },
   other: {

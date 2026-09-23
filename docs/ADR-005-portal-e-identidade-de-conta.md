@@ -2,14 +2,15 @@
 
 ## Plataforma, jogos e conteúdo
 
-A plataforma expõe um catálogo de modalidades (`Game`) em `packages/contracts/src/games.js`:
-um registro tipado e validado por schema Zod (`gameSchema`), com `id`, `slug`, `name`,
-descrições curta e completa, `status` (`AVAILABLE` | `COMING_SOON` | `DISABLED`), `route`
-e `icon`. A página inicial (`/`) lista apenas modalidades `AVAILABLE` via
-`listAvailableGames()`; hoje só o Quiz está disponível. Um novo jogo se registra nesse
-array sem qualquer alteração na página inicial. Não existe CRUD administrativo para o
-catálogo porque as modalidades são controladas por deploy, não por usuários finais — um
-banco ou painel para isso seria complexidade sem uso real no estágio atual.
+A plataforma expõe um catálogo de modalidades (`Game`). Isto foi inicialmente um registro
+tipado em `packages/contracts/src/games.js`, e depois extraído para `@quizarena/game-registry`
+e `@quizarena/game-quiz` como parte da fundação modular MultyGames — ver
+[ADR-006](ADR-006-multygames-fundacao-modular.md). A página inicial (`/`) lista apenas
+modalidades `AVAILABLE`; hoje só o Quiz está disponível. Um novo jogo se registra sem
+qualquer alteração na página inicial. Não existe CRUD administrativo para o catálogo
+porque as modalidades são controladas por deploy, não por usuários finais — um banco ou
+painel para isso seria complexidade sem uso real no estágio atual (o ADR-006 documenta um
+caminho híbrido futuro).
 
 O Quiz é a primeira modalidade, não a plataforma: `Game` (modalidade) e `Quiz` (conteúdo
 jogável dentro da modalidade, como "Países" ou "Frutas") são conceitos distintos desde a

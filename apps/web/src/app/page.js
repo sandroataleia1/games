@@ -2,9 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listAvailableGames } from "@quizarena/contracts";
 import styles from "./home.module.css";
-import { getGameVisual } from "./game-visuals";
+import { listAvailableGames } from "../lib/game-catalog";
 import { api } from "../lib/api";
 
 const games = listAvailableGames();
@@ -89,21 +88,25 @@ function QuizIllustration() {
   );
 }
 
-function FeaturedGame({ game, user }) {
-  const visual = getGameVisual(game.slug);
+function playerCountLabel(minPlayers) {
+  return `A partir de ${minPlayers} jogador${minPlayers > 1 ? "es" : ""}`;
+}
+
+function FeaturedGame({ module, user }) {
+  const { definition, capabilities } = module;
   return (
-    <article className={styles.featured} style={{ "--accent-from": visual.from, "--accent-to": visual.to, "--accent-ink": visual.ink }}>
+    <article className={styles.featured} style={{ "--accent-from": definition.visual.accent, "--accent-gradient": definition.visual.gradient }}>
       <div className={styles.featuredBody}>
         <span className={styles.statusBadge}><span className={styles.statusDot} aria-hidden="true" />Disponível agora</span>
-        <h3>{game.name}</h3>
-        <p className={styles.featuredTagline}>Responda rápido, marque pontos e vença seus amigos.</p>
+        <h3>{definition.name}</h3>
+        <p className={styles.featuredTagline}>{definition.shortDescription}</p>
         <ul className={styles.facts}>
-          <li><UsersIcon /> A partir de 1 jogador</li>
+          <li><UsersIcon /> {playerCountLabel(capabilities.minPlayers)}</li>
           <li><BoltIcon /> Tempo real</li>
           <li><ClockIcon /> Partidas rápidas</li>
         </ul>
         <div className={styles.featuredActions}>
-          <Link className={styles.play} href={game.route}>
+          <Link className={styles.play} href={definition.route}>
             <PlayIcon />
             {user ? "Jogar agora" : "Ver detalhes"}
           </Link>
@@ -115,14 +118,14 @@ function FeaturedGame({ game, user }) {
   );
 }
 
-function CompactGame({ game }) {
-  const visual = getGameVisual(game.slug);
+function CompactGame({ module }) {
+  const { definition } = module;
   return (
-    <article className={styles.compactCard} style={{ "--accent-from": visual.from, "--accent-to": visual.to, "--accent-ink": visual.ink }}>
-      <span className={styles.compactGlyph} aria-hidden="true">{game.icon}</span>
-      <h3>{game.name}</h3>
-      <p>{game.shortDescription}</p>
-      <Link className={styles.play} href={game.route}>
+    <article className={styles.compactCard} style={{ "--accent-from": definition.visual.accent, "--accent-gradient": definition.visual.gradient }}>
+      <span className={styles.compactGlyph} aria-hidden="true">{definition.visual.icon}</span>
+      <h3>{definition.name}</h3>
+      <p>{definition.shortDescription}</p>
+      <Link className={styles.play} href={definition.route}>
         <PlayIcon />
         Jogar
       </Link>
@@ -144,8 +147,8 @@ export default function Home() {
     <div className={styles.page}>
       <header className={styles.header}>
         <div className={styles.brand}>
-          <span className={styles.brandMark} aria-hidden="true">Q</span>
-          <span className={styles.brandName}>QuizArena</span>
+          <span className={styles.brandMark} aria-hidden="true">M</span>
+          <span className={styles.brandName}>MultyGames</span>
         </div>
         <nav className={styles.nav} aria-label="Principal">
           <a href="#catalogo">Jogos</a>
@@ -172,10 +175,10 @@ export default function Home() {
       <section className={styles.catalog} id="catalogo" aria-labelledby="catalog-heading">
         <h2 className={styles.catalogLabel} id="catalog-heading">Jogos disponíveis</h2>
         {games.length === 1 ? (
-          <FeaturedGame game={games[0]} user={user} />
+          <FeaturedGame module={games[0]} user={user} />
         ) : (
           <div className={styles.grid} role="list">
-            {games.map((game) => <CompactGame game={game} key={game.id} />)}
+            {games.map((module) => <CompactGame module={module} key={module.definition.key} />)}
           </div>
         )}
       </section>

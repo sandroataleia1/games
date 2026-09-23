@@ -1,4 +1,4 @@
-# QuizArena
+# MultyGames
 
 Organizadores podem criar conta em `/cadastro`, entrar em `/login` e gerenciar quizzes em `/painel`. O seed local cria `organizador@quizarena.local` com a senha `QuizArena2026`; essa credencial existe somente no ambiente de desenvolvimento.
 

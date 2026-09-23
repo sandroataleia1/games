@@ -158,7 +158,7 @@
   width: 46px;
   height: 46px;
   border-radius: 30% 70% 62% 38% / 46% 40% 60% 54%;
-  background: linear-gradient(135deg, var(--accent-from, var(--lime)), var(--accent-to, var(--cyan)));
+  background: var(--accent-gradient, linear-gradient(135deg, var(--lime), var(--cyan)));
   color: var(--accent-ink, #16221a);
   font-family: var(--font-display), sans-serif;
   font-weight: 800;
@@ -177,7 +177,8 @@
 /* Featured card (single available game) */
 .featured {
   --accent-from: var(--lime);
-  --accent-to: var(--cyan);
+  --accent-gradient: linear-gradient(135deg, var(--lime), var(--cyan));
+  --accent-ink: #16221a;
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -284,7 +285,7 @@
   align-items: center;
   gap: 8px;
   text-decoration: none;
-  background: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+  background: var(--accent-gradient, linear-gradient(135deg, var(--lime), var(--cyan)));
   color: var(--accent-ink, #16221a);
   box-shadow: 0 6px 0 color-mix(in srgb, var(--accent-from) 55%, #000), 0 14px 28px -10px color-mix(in srgb, var(--accent-from) 55%, transparent);
   transition: transform 0.15s ease, filter 0.15s ease;

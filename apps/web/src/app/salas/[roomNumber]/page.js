@@ -120,7 +120,7 @@ export default function RoomLobby() {
     <main className={styles.shell}>
       <section className={styles.board} aria-labelledby="room-title">
         <header className={styles.header}>
-          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>QuizArena / Sala {roomNumber}</span></div>
+          <div className={styles.brand}><span className={styles.mark} aria-hidden="true">Q</span><span>MultyGames / Sala {roomNumber}</span></div>
           <div className={styles.status} role="status" aria-live="polite"><span className={styles.statusDot} />{status === "connected" ? (ready ? "Conectado" : "Sincronizando…") : status === "reconnecting" ? "Reconectando" : "Aguardando conexão"}</div>
         </header>
 

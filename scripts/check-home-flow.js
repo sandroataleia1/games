@@ -11,7 +11,7 @@ const page = await ctx.newPage();
 try {
   // Visitante: logo, catálogo, Quiz, botão principal, Entrar, Cadastrar.
   await page.goto(base + "/");
-  await page.getByText("QuizArena").waitFor();
+  await page.getByText("MultyGames").waitFor();
   await page.getByRole("heading", { name: "Qual jogo vamos jogar hoje?" }).waitFor();
   await page.getByRole("heading", { name: "Quiz", exact: true }).waitFor();
   await page.getByRole("link", { name: "Entrar", exact: true }).waitFor();

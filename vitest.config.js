@@ -5,6 +5,8 @@ export default defineConfig({
     fileParallelism: false,
     include: [
       "packages/contracts/test.js",
+      "packages/game-registry/test.js",
+      "packages/games/quiz/test.js",
       "apps/realtime/test/**/*.test.js",
       "apps/web/src/**/*.test.js",
       "packages/database/test/**/*.test.js",

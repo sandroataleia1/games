@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { EVENTS, systemPingSchema, systemPongSchema, GAME_STATUS, listGames, listAvailableGames, getGameBySlug, publicRoomSchema, lobbySchemas } from "./src/index.js";
+import { EVENTS, systemPingSchema, systemPongSchema, publicRoomSchema, lobbySchemas } from "./src/index.js";
 
 const ping = { id: "request-1", sentAt: "2026-09-21T18:00:00.000Z" };
 test("event names and valid ping contract", () => {
@@ -29,17 +29,6 @@ test.each([{}, ping, { ...ping, serverAt: "now" }, { ...ping, serverAt: 123 }])(
   },
 );
 
-test("game catalog exposes only the Quiz game as available, with a stable route", () => {
-  const games = listGames();
-  expect(games.length).toBeGreaterThan(0);
-  const available = listAvailableGames();
-  expect(available).toEqual([expect.objectContaining({ slug: "quiz", status: GAME_STATUS.AVAILABLE, route: "/jogos/quiz" })]);
-  expect(available.every((game) => game.status === GAME_STATUS.AVAILABLE)).toBe(true);
-});
-test("getGameBySlug finds a known game and returns null for unknown slugs", () => {
-  expect(getGameBySlug("quiz")).toMatchObject({ id: "quiz" });
-  expect(getGameBySlug("nao-existe")).toBeNull();
-});
 test("themeSelect and matchStart address a persistent room by number, no ad-hoc creation payload", () => {
   const quizId = "3b9a6b6a-9b1a-4c9e-8f8a-8b3c9a9d1e11";
   expect(lobbySchemas.themeSelect.parse({ roomNumber: 3, quizId })).toEqual({ roomNumber: 3, quizId });

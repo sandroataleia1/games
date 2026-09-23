@@ -1,4 +1,4 @@
-# Modelo persistente do QuizArena
+# Modelo persistente da MultyGames
 
 `Organizer` possui muitos `Quiz` e muitas sessões autenticadas. `OrganizerSession` guarda somente SHA-256 do token e expiração explícita. `Quiz.ownerId` é obrigatório e `Quiz.version` sustenta controle otimista. A migration cria um proprietário isolado para quizzes preexistentes antes de tornar a coluna obrigatória; o seed reassocia seu quiz ao organizador de desenvolvimento.
 
