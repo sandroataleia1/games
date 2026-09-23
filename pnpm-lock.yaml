@@ -90,6 +90,9 @@ importers:
       socket.io-client:
         specifier: ^4.8.1
         version: 4.8.3
+      zod:
+        specifier: ^4.1.12
+        version: 4.6.5
     devDependencies:
       eslint:
         specifier: ^9

@@ -11,6 +11,11 @@ test("the Quiz module is available, routes to /jogos/quiz and supports solo play
   expect(quizGame.capabilities.supportsSolo).toBe(true);
 });
 
+test("the Quiz module carries a real, non-default releasedAt", () => {
+  expect(quizGame.definition.releasedAt).toBe("2026-09-23T08:22:12-03:00");
+  expect(() => new Date(quizGame.definition.releasedAt).toISOString()).not.toThrow();
+});
+
 test("Quiz capabilities mirror the definition instead of a second hand-written copy", () => {
   expect(quizGame.capabilities).toEqual({
     minPlayers: quizGame.definition.minPlayers,

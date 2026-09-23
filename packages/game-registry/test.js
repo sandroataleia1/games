@@ -9,6 +9,7 @@ const baseDefinition = {
   description: "Longo",
   status: GAME_STATUS.AVAILABLE,
   route: "/jogos/quiz",
+  releasedAt: "2026-09-23T08:22:12-03:00",
   minPlayers: 1,
   maxPlayers: 100,
   supportsSolo: true,
@@ -43,6 +44,11 @@ test("rejects a definition where supportsSolo disagrees with minPlayers", () => 
 
 test("rejects a definition where maxPlayers is below minPlayers", () => {
   expect(() => gameDefinitionSchema.parse({ ...baseDefinition, minPlayers: 5, maxPlayers: 2, supportsSolo: false })).toThrow();
+});
+
+test("rejects a definition with a non-ISO releasedAt, never defaults it to now", () => {
+  expect(() => gameDefinitionSchema.parse({ ...baseDefinition, releasedAt: "23/09/2026" })).toThrow();
+  expect(() => gameDefinitionSchema.parse({ ...baseDefinition, releasedAt: undefined })).toThrow();
 });
 
 test("rejects a definition carrying unknown or secret-shaped fields", () => {

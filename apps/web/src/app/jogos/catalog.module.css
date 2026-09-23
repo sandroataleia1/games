@@ -1,0 +1,27 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(24px, 4vw, 40px);
+  padding-bottom: clamp(32px, 6vw, 56px);
+}
+.intro {
+  padding: 8px clamp(16px, 4vw, 48px) 0;
+  max-width: 640px;
+}
+.intro h1 {
+  margin: 0;
+  font-size: clamp(26px, 4vw, 36px);
+  letter-spacing: -0.8px;
+}
+.intro p {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 15.5px;
+  line-height: 1.5;
+}
+
+@media (max-width: 640px) {
+  .intro {
+    padding: 8px 16px 0;
+  }
+}

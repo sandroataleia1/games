@@ -18,6 +18,10 @@ export const quizGame = defineGameModule({
       "pontuação por velocidade de resposta; a partida pode começar com um único participante.",
     status: "AVAILABLE",
     route: "/jogos/quiz",
+    // Data em que o Quiz foi registrado como a primeira modalidade da
+    // MultyGames (commit 5cc7cd0, PLATFORM-07A) - não é data de build nem
+    // "agora"; é o evento real de entrada no catálogo.
+    releasedAt: "2026-09-23T08:22:12-03:00",
     minPlayers: 1,
     maxPlayers: 100,
     supportsSolo: true,

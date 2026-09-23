@@ -9,18 +9,29 @@ const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } })
 const page = await ctx.newPage();
 
 try {
-  // Visitante: logo, catálogo, Quiz, botão principal, Entrar, Cadastrar.
+  // Visitante: marca, banner, seções, Quiz no catálogo, Entrar, Cadastrar.
   await page.goto(base + "/");
-  await page.getByText("MultyGames").waitFor();
-  await page.getByRole("heading", { name: "Qual jogo vamos jogar hoje?" }).waitFor();
-  await page.getByRole("heading", { name: "Quiz", exact: true }).waitFor();
+  await page.getByText("MultyGames").first().waitFor();
+  await page.locator('[aria-roledescription="carousel"]').waitFor();
+  await page.getByRole("heading", { name: "Mais jogados" }).waitFor();
+  await page.getByRole("heading", { name: "Jogos recentes" }).waitFor();
+  await page.getByRole("heading", { name: "Quiz", exact: true }).first().waitFor();
   await page.getByRole("link", { name: "Entrar", exact: true }).waitFor();
   await page.getByRole("link", { name: "Criar conta" }).first().waitFor();
-  await page.getByRole("link", { name: /Ver detalhes/ }).click();
+  await page.getByRole("link", { name: "Todos os jogos" }).waitFor();
+
+  // Visitante que tenta jogar é encaminhado ao fluxo de autenticação do Quiz.
+  await page.getByRole("link", { name: "Jogar" }).first().click();
   await page.waitForURL("**/jogos/quiz");
   await page.getByText("necessário ter uma conta", { exact: false }).waitFor();
 
-  // Login e retorno à home.
+  // /jogos: catálogo completo acessível diretamente.
+  await page.goto(base + "/jogos");
+  await page.getByRole("heading", { name: "Todos os jogos" }).waitFor();
+  await page.getByRole("heading", { name: "Quiz", exact: true }).waitFor();
+  await page.getByText("Disponível", { exact: true }).waitFor();
+
+  // Cadastro e retorno.
   await page.goto(base + "/");
   const email = `home-check-${stamp}@example.com`;
   await page.getByRole("link", { name: "Criar conta" }).first().click();
@@ -31,11 +42,14 @@ try {
   await page.getByRole("button", { name: "Criar conta" }).click();
   await page.waitForURL("**/jogos/quiz");
 
-  // Autenticado: home reconhece a sessão, mostra "Jogar agora", painel e sair.
+  // Autenticado: home reconhece a sessão, mostra painel e sair; catálogo também.
   await page.goto(base + "/");
   await page.getByText("Olá, Checagem Home").waitFor();
   await page.getByRole("link", { name: "Meu painel" }).waitFor();
-  await page.getByRole("link", { name: "Jogar agora" }).waitFor();
+  await page.goto(base + "/jogos");
+  await page.getByText("Olá, Checagem Home").waitFor();
+
+  await page.goto(base + "/");
   await page.getByRole("button", { name: "Sair" }).click();
   await page.getByRole("link", { name: "Entrar", exact: true }).waitFor();
 

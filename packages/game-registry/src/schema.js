@@ -21,6 +21,9 @@ export const gameDefinitionSchema = z
     description: z.string().min(1),
     status: z.enum(Object.values(GAME_STATUS)),
     route: z.string().startsWith("/"),
+    // The date this modality entered the MultyGames catalog - not a build
+    // timestamp, not "now", and never defaulted. Drives "Jogos recentes".
+    releasedAt: z.string().datetime({ offset: true }),
     minPlayers: z.number().int().positive(),
     maxPlayers: z.number().int().positive(),
     supportsSolo: z.boolean(),
