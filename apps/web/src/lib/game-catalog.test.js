@@ -26,19 +26,18 @@ test("getGameByKey and getGameBySlug resolve the Quiz module and reject unknown 
   expect(getGameBySlug("nao-existe")).toBeNull();
 });
 
-test("Mais jogados: with a single available game, it is the only card - no invented popularity data", () => {
-  const mostPlayed = listMostPlayedGames();
+test("Mais jogados: with no metrics and a single available game (the real catalog today), it is the only card", () => {
+  // Exhaustive ranking/fallback rule coverage (ties, invalid metrics, two
+  // available games with no metrics, etc.) lives in game-discovery.test.js
+  // against synthetic modules; this just checks the wrapper is wired to the
+  // real registry correctly.
+  const mostPlayed = listMostPlayedGames([]);
   expect(mostPlayed).toHaveLength(1);
   expect(mostPlayed[0].definition.key).toBe("quiz");
-  for (const gameModule of mostPlayed) {
-    expect(gameModule.definition).not.toHaveProperty("popularityScore");
-    expect(gameModule.definition).not.toHaveProperty("playerCount");
-    expect(gameModule).not.toHaveProperty("popularityScore");
-  }
 });
 
 test("Mais jogados respects its section limit", () => {
-  expect(listMostPlayedGames(0)).toHaveLength(0);
+  expect(listMostPlayedGames([], 0)).toHaveLength(0);
 });
 
 test("Jogos recentes: sorted newest releasedAt first, and Quiz legitimately appears since it is the only entry", () => {

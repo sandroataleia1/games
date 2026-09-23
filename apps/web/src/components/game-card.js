@@ -1,17 +1,17 @@
 import Link from "next/link";
 import styles from "./game-card.module.css";
-
-const STATUS_LABEL = Object.freeze({ AVAILABLE: "Disponível", COMING_SOON: "Em breve", DISABLED: "Indisponível" });
+import { resolveCardState } from "../lib/game-card-state";
 
 // One card, three placements ("Mais jogados", "Jogos recentes", the full
-// /jogos catalog) - the only thing that differs is `variant`:
-// - compact: used in the two homepage discovery sections, which only ever
-//   list AVAILABLE games, so no status badge is needed.
-// - catalog: used on /jogos, which lists every status, so the badge (and a
-//   disabled action for anything not AVAILABLE) matters there.
+// /jogos catalog) - the only thing that differs is `variant`. Whether the
+// action is a real link or a disabled button, and whether the status badge
+// shows, is decided once by resolveCardState() (apps/web/src/lib/game-card
+// -state.js) from `definition.status` - never re-derived here, and never
+// differently per variant, so no placement can accidentally offer a start
+// action for a game that isn't AVAILABLE.
 export function GameCard({ module, variant = "compact" }) {
   const { definition, capabilities } = module;
-  const playable = definition.status === "AVAILABLE";
+  const { playable, showBadge, statusLabel } = resolveCardState(definition, variant);
   return (
     <article
       className={styles.card}
@@ -20,9 +20,7 @@ export function GameCard({ module, variant = "compact" }) {
       style={{ "--accent-from": definition.visual.accent, "--accent-gradient": definition.visual.gradient }}
     >
       <span className={styles.glyph} aria-hidden="true">{definition.visual.icon}</span>
-      {variant === "catalog" && (
-        <span className={styles.badge} data-status={definition.status}>{STATUS_LABEL[definition.status]}</span>
-      )}
+      {showBadge && <span className={styles.badge} data-status={definition.status}>{statusLabel}</span>}
       <h3>{definition.name}</h3>
       <p>{definition.shortDescription}</p>
       <ul className={styles.meta}>
@@ -33,7 +31,7 @@ export function GameCard({ module, variant = "compact" }) {
         <Link className={styles.action} href={definition.route}>Jogar</Link>
       ) : (
         <button type="button" className={styles.action} data-disabled="true" disabled>
-          {STATUS_LABEL[definition.status]}
+          {statusLabel}
         </button>
       )}
     </article>

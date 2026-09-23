@@ -34,18 +34,38 @@ esse texto dentro do módulo do jogo misturaria regra de negócio com copy de po
 
 ## Origem de "Mais jogados" e "Jogos recentes"
 
-Nenhuma das duas seções inventa métricas. `listMostPlayedGames()`
-(`apps/web/src/lib/game-catalog.js`) hoje apenas retorna as modalidades `AVAILABLE` -
-não existe `popularityScore`, contagem de partidas ou de jogadores em lugar nenhum do
-contrato. Essa função é o único lugar que precisaria mudar quando uma métrica real
-existir; o portal não seria tocado. `listRecentGames()` ordena por
-`definition.releasedAt` (mais recente primeiro) e não filtra por status - um jogo
-`COMING_SOON` pode aparecer aí legitimamente, já que "recente" descreve a entrada no
-catálogo, não se o jogo já pode ser jogado.
+**Correção (PLATFORM-07A.3):** a primeira versão desta seção descrevia
+`listMostPlayedGames()` como "retorna todas as modalidades `AVAILABLE`" - na prática
+isso fazia "Mais jogados" significar apenas "Disponíveis", o que deixa de ser verdade
+assim que existir um segundo jogo sem métricas. Corrigido abaixo.
+
+Nenhuma das duas seções inventa métricas ou popularidade editorial.
+`listMostPlayedGames(metrics, limit)` (`apps/web/src/lib/game-catalog.js`, regra em
+`apps/web/src/lib/game-discovery.js`) aceita uma coleção de `GameActivityMetric =
+{ gameKey, matchesPlayed }` - o formato que o PLATFORM-07B ou uma etapa posterior
+precisa fornecer a partir de dados reais. Uma métrica é descartada (não lança erro) se:
+a chave não corresponde a um jogo registrado; o jogo não está `AVAILABLE`; ou
+`matchesPlayed` não é um inteiro finito ≥ 0. Métricas válidas decidem a ordem
+(decrescente por `matchesPlayed`, empate desempatado por `key` em ordem alfabética,
+para resultado determinístico). Sem nenhuma métrica válida:
+
+* exatamente um jogo `AVAILABLE` → esse jogo aparece (é o único candidato possível,
+  não uma estimativa editorial);
+* dois ou mais jogos `AVAILABLE` → lista vazia. `GameSection` já omite a seção inteira
+  quando a lista é vazia (sem título vazio) - isso volta a preencher sozinho assim que
+  métricas reais chegarem, sem tocar no portal.
+
+`GameDefinition` não ganhou nenhum campo de métrica; a contagem nunca é persistida
+nesta etapa, só passada como parâmetro puro.
+
+`listRecentGames(limit)` ordena por `definition.releasedAt` (mais recente primeiro) e
+aceita `AVAILABLE` e `COMING_SOON` - "recente" descreve a entrada no catálogo, não se o
+jogo já pode ser jogado. `DISABLED` é excluído da home (só aparece, com ação bloqueada,
+no catálogo completo `/jogos`).
 
 Ambas aceitam um limite (`SECTION_LIMIT = 6` por padrão) para quando houver mais
-modalidades; hoje, com um único jogo, o Quiz aparece nas duas seções e no catálogo
-completo - isso é factual e temporário, não um bug.
+modalidades; hoje, com um único jogo `AVAILABLE`, o Quiz aparece nas duas seções e no
+catálogo completo - isso é factual e temporário, não um bug.
 
 ## `releasedAt`
 
@@ -61,11 +81,20 @@ uma correção não relacionada.
 
 `GameCard` (`apps/web/src/components/game-card.js`) é a única implementação de card de
 jogo, usada em três lugares (Mais jogados, Jogos recentes, catálogo `/jogos`) via a
-prop `variant` (`compact` | `catalog`) - a única diferença real entre elas é que
-`catalog` mostra o selo de status e desabilita a ação quando o jogo não está
-`AVAILABLE`, porque só a rota `/jogos` lista jogos fora desse status. Não foi criada
-uma variante `featured`: nada no portal hoje precisa dela, e criar uma variante sem uso
-real contrariaria a instrução de não antecipar cenários.
+prop `variant` (`compact` | `catalog`). Não foi criada uma variante `featured`: nada no
+portal hoje precisa dela, e criar uma variante sem uso real contrariaria a instrução de
+não antecipar cenários.
+
+**Bloqueio centralizado (PLATFORM-07A.3):** se um jogo `COMING_SOON` ou `DISABLED`
+aparecer num card, ele nunca renderiza um link de início, em nenhuma variante e em
+nenhuma página - isso é decidido uma única vez por `resolveCardState()`
+(`apps/web/src/lib/game-card-state.js`), não recalculado por chamador. `playable` só é
+`true` quando `status === "AVAILABLE"`; qualquer outro valor produz um `<button
+disabled>` com o rótulo do status, nunca um `<a href>`. O selo de status fica oculto na
+variante `compact` somente enquanto `AVAILABLE` (mantém o card enxuto no caso comum);
+para qualquer outro status, o selo aparece mesmo em `compact` - "discreto" não pode
+significar "silencioso" sobre um jogo que não pode ser iniciado. A variante `catalog`
+sempre mostra o selo, disponível ou não.
 
 ## Server vs. Client Components
 
