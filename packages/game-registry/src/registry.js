@@ -1,4 +1,5 @@
-import { gameDefinitionSchema, gameModuleSchema } from "./schema.js";
+import { gameCategorySchema, gameDefinitionSchema, gameModuleSchema } from "./schema.js";
+import { GAME_CATEGORIES } from "./categories.js";
 
 function freezeDeep(value) {
   if (value && typeof value === "object" && !Object.isFrozen(value)) {
@@ -27,7 +28,7 @@ export function defineGameModule({ definition, implementation }) {
 // An immutable, validated catalog of game modules. Throws at construction
 // time on a duplicate key/slug rather than letting two games silently
 // collide later at lookup time.
-export function createGameRegistry(modules) {
+export function createGameRegistry(modules, categories = GAME_CATEGORIES) {
   const parsed = modules.map((module) => freezeDeep(gameModuleSchema.parse(module)));
   const byKey = new Map();
   const bySlug = new Map();
@@ -38,6 +39,21 @@ export function createGameRegistry(modules) {
     byKey.set(key, module);
     bySlug.set(slug, module);
   }
+  const parsedCategories = categories.map((category) => freezeDeep(gameCategorySchema.parse(category)));
+  const categoryByKey = new Map();
+  const categoryBySlug = new Map();
+  for (const category of parsedCategories) {
+    if (categoryByKey.has(category.key)) throw new Error(`game-registry: categoria duplicada "${category.key}"`);
+    if (categoryBySlug.has(category.slug)) throw new Error(`game-registry: slug de categoria duplicado "${category.slug}"`);
+    categoryByKey.set(category.key, category);
+    categoryBySlug.set(category.slug, category);
+  }
+  for (const module of parsed) {
+    for (const categoryKey of module.definition.categoryKeys) {
+      if (!categoryByKey.has(categoryKey)) throw new Error(`game-registry: jogo "${module.definition.key}" referencia categoria inexistente "${categoryKey}"`);
+    }
+  }
+  const orderedCategories = Object.freeze([...parsedCategories].sort((a, b) => a.displayOrder - b.displayOrder || a.key.localeCompare(b.key)));
   const ordered = Object.freeze([...parsed].sort((a, b) => a.definition.name.localeCompare(b.definition.name, "pt-BR")));
 
   return Object.freeze({
@@ -45,5 +61,14 @@ export function createGameRegistry(modules) {
     listAvailable: () => ordered.filter((module) => module.definition.status === "AVAILABLE"),
     getByKey: (key) => byKey.get(key) ?? null,
     getBySlug: (slug) => bySlug.get(slug) ?? null,
+    listCategories: () => orderedCategories,
+    getCategoryByKey: (key) => categoryByKey.get(key) ?? null,
+    getCategoryBySlug: (slug) => categoryBySlug.get(slug) ?? null,
+    listGamesByCategory: (key) => ordered.filter((module) => module.definition.categoryKeys.includes(key)),
+    // Public = has at least one game that isn't DISABLED (AVAILABLE or
+    // COMING_SOON are both announced). Plain-data DTOs, no functions.
+    listPublicCategories: () => orderedCategories
+      .filter((category) => ordered.some((module) => module.definition.status !== "DISABLED" && module.definition.categoryKeys.includes(category.key)))
+      .map(({ key, slug, name, description, displayOrder }) => ({ key, slug, name, ...(description ? { description } : {}), displayOrder })),
   });
 }

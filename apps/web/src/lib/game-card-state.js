@@ -16,3 +16,12 @@ export function resolveCardState(definition, variant) {
     statusLabel: STATUS_LABEL[definition.status] ?? definition.status,
   };
 }
+
+// Category names shown as tags on a card. Only the catalog variant shows
+// them (the home sections stay light); names always come from the shared
+// category definitions via `getCategoryByKey`, never from the game itself,
+// and nothing here branches on which game it is.
+export function resolveCategoryTags(definition, variant, getCategoryByKey) {
+  if (variant !== "catalog") return [];
+  return definition.categoryKeys.map((key) => getCategoryByKey(key)).filter(Boolean).map(({ key, slug, name }) => ({ key, slug, name }));
+}

@@ -31,3 +31,8 @@ test("the Quiz module registers cleanly on its own", () => {
   expect(registry.listAvailable()).toHaveLength(1);
   expect(registry.getByKey("quiz")).toBe(registry.getBySlug("quiz"));
 });
+
+test("the Quiz belongs to TRIVIA, by key only", () => {
+  expect(quizGame.definition.categoryKeys).toEqual(["TRIVIA"]);
+  expect(quizGame.definition).not.toHaveProperty("categories");
+});

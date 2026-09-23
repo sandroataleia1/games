@@ -4,11 +4,14 @@
 }
 
 .card {
+  width: 100%;
+  box-sizing: border-box;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 12px;
   padding: 22px;
-  background: linear-gradient(160deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 70%, #000));
+  background: var(--game-background, linear-gradient(160deg, var(--panel-2), color-mix(in srgb, var(--panel-2) 70%, #000)));
   border: 1px solid color-mix(in srgb, var(--violet) 20%, var(--line));
   border-radius: 20px;
   animation: cardIn 0.4s ease both;
@@ -17,6 +20,98 @@
 .card:hover {
   transform: translateY(-4px);
   border-color: color-mix(in srgb, var(--accent-from, var(--lime)) 45%, transparent);
+}
+.card[data-game="quiz"] {
+  position: relative;
+  min-height: 260px;
+  overflow: hidden;
+  justify-content: flex-end;
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--accent-from) 28%, var(--panel-2)), var(--panel)),
+    var(--game-background, var(--panel-2));
+  background-image: url("/assets/quiz-card-art.png"), linear-gradient(145deg, color-mix(in srgb, var(--accent-from) 28%, var(--panel-2)), var(--panel));
+  background-repeat: no-repeat;
+  background-size: min(78%, 230px), 100% 100%;
+  background-position: center 34%, center;
+}
+@media (max-width: 640px) {
+  .card {
+    padding: 14px;
+    gap: 8px;
+  }
+  .card[data-game="quiz"] {
+    min-height: 190px;
+  }
+}
+.card[data-game="quiz"]::before {
+  content: "QUIZ";
+  z-index: 1;
+  color: var(--ink);
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(42px, 6vw, 82px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-shadow: 0 3px 14px #000b, 0 0 2px #fff8;
+  -webkit-text-stroke: 1px #0005;
+  opacity: 1;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--accent-from) 72%, white);
+  font-family: var(--font-display), sans-serif;
+  font-size: clamp(42px, 5vw, 72px);
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  opacity: 0.24;
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+.card[data-game="quiz"] > * {
+  position: relative;
+  z-index: 1;
+}
+.card[data-game="quiz"] .glyph {
+  display: none;
+}
+.card[data-game="quiz"] h3 {
+  display: none;
+}
+.card[data-game="quiz"] p,
+.card[data-game="quiz"] .meta {
+  display: none;
+}
+.card[data-game="quiz"] > .cardLink,
+.cardLink {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  cursor: pointer;
+}
+.card:has(.cardLink) {
+  cursor: pointer;
+}
+.liveCount {
+  position: relative;
+  z-index: 1;
+  align-self: flex-start;
+  margin-top: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+.card[data-game="quiz"]::before {
+  content: "QUIZ";
+  z-index: 1;
+  color: var(--ink);
+  font-size: clamp(42px, 6vw, 82px);
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-shadow: 0 3px 14px #000b, 0 0 2px #fff8;
+  -webkit-text-stroke: 1px #0005;
+  opacity: 1;
+  transform: rotate(-10deg) scale(1.08);
 }
 .glyph {
   display: grid;
@@ -100,4 +195,29 @@
   background: var(--panel);
   color: var(--muted);
   cursor: not-allowed;
+}
+
+.categoryTags {
+  align-self: flex-start;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.categoryTags li {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--muted);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--violet) 20%, var(--line));
+}
+
+/* The catalog card carries an extra category tag, so the artwork card needs
+   room for it (a fixed 190px on mobile made the tag cover the art). */
+.card[data-variant="catalog"][data-game="quiz"] {
+  min-height: 320px;
 }

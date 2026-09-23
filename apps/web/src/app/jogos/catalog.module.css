@@ -1,11 +1,13 @@
 .page {
   display: flex;
   flex-direction: column;
-  gap: clamp(24px, 4vw, 40px);
+  width: min(100%, 1280px);
+  margin-inline: auto;
+  gap: clamp(16px, 2.5vw, 28px);
   padding-bottom: clamp(32px, 6vw, 56px);
 }
 .intro {
-  padding: 8px clamp(16px, 4vw, 48px) 0;
+  padding: 8px 0 0;
   max-width: 640px;
 }
 .intro h1 {
@@ -21,7 +23,38 @@
 }
 
 @media (max-width: 640px) {
+  .page {
+    width: 100%;
+  }
   .intro {
     padding: 8px 16px 0;
   }
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.filters a {
+  min-height: 40px;
+  padding: 8px 16px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid color-mix(in srgb, var(--violet) 24%, var(--line));
+}
+.filters a[aria-current="page"] {
+  background: color-mix(in srgb, var(--lime) 22%, var(--panel));
+  border-color: var(--lime);
+}
+.notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
 }

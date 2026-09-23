@@ -15,6 +15,11 @@ export const listGames = registry.list;
 export const listAvailableGames = registry.listAvailable;
 export const getGameByKey = registry.getByKey;
 export const getGameBySlug = registry.getBySlug;
+export const listCategories = registry.listCategories;
+export const listPublicCategories = registry.listPublicCategories;
+export const getCategoryByKey = registry.getCategoryByKey;
+export const getCategoryBySlug = registry.getCategoryBySlug;
+export const listGamesByCategory = registry.listGamesByCategory;
 
 // A GameActivityMetric is { gameKey, matchesPlayed }: the shape PLATFORM-07B
 // (or a later stage) must supply once durable per-game metrics exist - see

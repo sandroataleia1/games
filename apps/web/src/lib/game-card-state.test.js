@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { resolveCardState } from "./game-card-state.js";
+import { resolveCardState, resolveCategoryTags } from "./game-card-state.js";
 
 function definitionWith(status) {
   return { key: "synthetic", status, route: "/jogos/synthetic" };
@@ -57,4 +57,20 @@ test("no variant ever marks a non-AVAILABLE game playable - the component only r
       expect(resolveCardState(definitionWith(status), variant).playable).toBe(false);
     }
   }
+});
+
+const categories = { TRIVIA: { key: "TRIVIA", slug: "trivia", name: "Quiz e conhecimentos" }, CARDS: { key: "CARDS", slug: "cards", name: "Cartas" } };
+const lookup = (key) => categories[key] ?? null;
+
+test("catalog cards show one tag per category, resolved by key from the shared definitions", () => {
+  const tags = resolveCategoryTags({ categoryKeys: ["TRIVIA", "CARDS"] }, "catalog", lookup);
+  expect(tags.map((tag) => tag.name)).toEqual(["Quiz e conhecimentos", "Cartas"]);
+});
+
+test("compact cards (home) show no category tag, keeping the sections light", () => {
+  expect(resolveCategoryTags({ categoryKeys: ["TRIVIA"] }, "compact", lookup)).toEqual([]);
+});
+
+test("an unresolvable category key is skipped instead of rendering a blank tag", () => {
+  expect(resolveCategoryTags({ categoryKeys: ["GHOST"] }, "catalog", lookup)).toEqual([]);
 });

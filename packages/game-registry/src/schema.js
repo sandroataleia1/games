@@ -7,7 +7,20 @@ export const GAME_STATUS = Object.freeze({
 });
 
 const slugPattern = /^[a-z0-9-]+$/;
+const categoryKeyPattern = /^[A-Z][A-Z0-9_]*$/;
 const keyPattern = /^[a-z][a-z0-9-]*$/;
+
+// A genre/family of games (TRIVIA, CARDS, ...), shared by every game that
+// declares its key. Public data only.
+export const gameCategorySchema = z
+  .object({
+    key: z.string().regex(categoryKeyPattern, "key deve ser MAIÚSCULA_COM_UNDERSCORE"),
+    slug: z.string().regex(slugPattern, "slug deve ser kebab-case"),
+    name: z.string().min(1),
+    description: z.string().min(1).optional(),
+    displayOrder: z.number().int().nonnegative(),
+  })
+  .strict();
 
 // Public, presentational metadata for one game. Nothing here may carry a
 // secret, a handler, a server path or anything else a client shouldn't see -
@@ -24,6 +37,10 @@ export const gameDefinitionSchema = z
     // The date this modality entered the MultyGames catalog - not a build
     // timestamp, not "now", and never defaulted. Drives "Jogos recentes".
     releasedAt: z.string().datetime({ offset: true }),
+    // Genres/families this game belongs to, by stable key only - the name
+    // and description live once, in the category definition. Never
+    // capabilities (solo, multiplayer, rooms) and never status.
+    categoryKeys: z.array(z.string().regex(categoryKeyPattern, "categoryKey inválida")).min(1, "todo jogo precisa de ao menos uma categoria"),
     minPlayers: z.number().int().positive(),
     maxPlayers: z.number().int().positive(),
     supportsSolo: z.boolean(),
@@ -33,11 +50,13 @@ export const gameDefinitionSchema = z
       .object({
         accent: z.string().min(1),
         gradient: z.string().min(1),
+        background: z.string().min(1).optional(),
         icon: z.string().min(1),
       })
       .strict(),
   })
   .strict()
+  .refine((definition) => new Set(definition.categoryKeys).size === definition.categoryKeys.length, "categoryKeys não pode repetir categoria")
   .refine((definition) => definition.maxPlayers >= definition.minPlayers, "maxPlayers deve ser >= minPlayers")
   .refine((definition) => definition.supportsSolo === (definition.minPlayers === 1), "supportsSolo deve refletir minPlayers === 1");
 

@@ -115,3 +115,39 @@ Nova rota, metadata própria (`apps/web/src/app/jogos/catalog-metadata.js`), usa
 "tudo" indiscriminadamente). Não há paginação: com um jogo, seria complexidade sem
 propósito; a grade (`repeat(auto-fill, minmax(240px, 320px))`) já se comporta
 corretamente conforme mais módulos forem registrados.
+
+## Categorias
+
+Categorias são gêneros/famílias de jogos (`TRIVIA`, no futuro `CARDS`, `BOARD`...), não
+regras de uma modalidade. A relação é muitos-para-muitos: um jogo declara
+`categoryKeys` (ao menos uma, sem repetir) e uma categoria pode conter vários jogos.
+O nome e a descrição vivem uma única vez, na definição da categoria
+(`packages/game-registry/src/categories.js`); o jogo referencia só a chave estável
+(`^[A-Z][A-Z0-9_]*$`), nunca texto livre. Uma chave inexistente faz
+`createGameRegistry` lançar erro na inicialização; chaves e slugs duplicados também.
+
+**Categoria não é capacidade.** Modo solo, multiplayer, sala pública/privada, quantidade
+de jogadores e status (disponível/em breve) continuam em `capabilities` e `status` do
+jogo - nunca viram categoria.
+
+**Fonte autoritativa hoje:** código. Só `TRIVIA` (`slug: trivia`, "Quiz e
+conhecimentos") está registrada, vinculada ao Quiz; nenhuma categoria futura vazia
+existe. `CARDS` só entra junto do módulo do Truco. Não há tabela no banco.
+Consultas do registro: `listCategories()` (ordem por `displayOrder`, depois `key`),
+`getCategoryByKey`, `getCategoryBySlug`, `listGamesByCategory(key)` e
+`listPublicCategories()` (DTO simples, só categorias com ao menos um jogo não
+`DISABLED`). Nada no portal ramifica por jogo (`if game.key === ...`); a associação vem
+só de `categoryKeys`.
+
+**URLs e filtro em `/jogos`:** `/jogos?categoria=<slug>` (ex.: `/jogos?categoria=trivia`).
+A filtragem é feita no servidor (`buildCatalogView`, `apps/web/src/lib/catalog-view.js`)
+e os controles são `<a>` comuns, então a página funciona sem JavaScript e cada visão é
+compartilhável. A barra de filtros ("Todos" + categorias) só aparece com duas ou mais
+categorias públicas; com uma só, a categoria aparece apenas como selo no card (variante
+`catalog`; a home não mostra o selo). Slug desconhecido não esvazia a página: mostra
+todos os jogos com o aviso "Categoria não encontrada".
+
+**Critério para persistir no banco:** só quando alguém precisar mudar a ordem ou a
+visibilidade de uma categoria sem deploy. Nesse caso o banco controlaria apenas
+`displayOrder` e visibilidade; `key`, `slug` e a referência `categoryKeys` continuariam
+definidas no código, que seguiria como fonte das chaves.

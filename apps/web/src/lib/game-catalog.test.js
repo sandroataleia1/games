@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { listGames, listAvailableGames, listMostPlayedGames, listRecentGames, getGameByKey, getGameBySlug } from "./game-catalog.js";
+import { listGames, listAvailableGames, listMostPlayedGames, listRecentGames, getGameByKey, getGameBySlug, listCategories, listPublicCategories, getCategoryBySlug, listGamesByCategory } from "./game-catalog.js";
 
 test("the portal's catalog exposes only the Quiz module, not the quizzes it plays", () => {
   const games = listGames();
@@ -50,4 +50,11 @@ test("Jogos recentes: sorted newest releasedAt first, and Quiz legitimately appe
 
 test("Jogos recentes respects its section limit", () => {
   expect(listRecentGames(0)).toHaveLength(0);
+});
+
+test("the real catalog registers only TRIVIA and links the Quiz to it", () => {
+  expect(listCategories().map((category) => category.key)).toEqual(["TRIVIA"]);
+  expect(getCategoryBySlug("trivia").name).toBe("Quiz e conhecimentos");
+  expect(listGamesByCategory("TRIVIA").map((m) => m.definition.key)).toEqual(["quiz"]);
+  expect(listPublicCategories()).toEqual([{ key: "TRIVIA", slug: "trivia", name: "Quiz e conhecimentos", displayOrder: 10 }]);
 });

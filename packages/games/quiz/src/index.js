@@ -22,6 +22,7 @@ export const quizGame = defineGameModule({
     // MultyGames (commit 5cc7cd0, PLATFORM-07A) - não é data de build nem
     // "agora"; é o evento real de entrada no catálogo.
     releasedAt: "2026-09-23T08:22:12-03:00",
+    categoryKeys: ["TRIVIA"],
     minPlayers: 1,
     maxPlayers: 100,
     supportsSolo: true,
@@ -30,6 +31,7 @@ export const quizGame = defineGameModule({
     visual: {
       accent: "var(--lime)",
       gradient: "linear-gradient(135deg, var(--lime), var(--cyan))",
+      background: "linear-gradient(145deg, #263a55, #152236)",
       icon: "Q",
     },
   },
